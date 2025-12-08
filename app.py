@@ -299,11 +299,11 @@ def update_ui_elements(fid, dist_tot, dist_off, poss_frames, speed):
     if vid is not None:
         success, buffer = cv2.imencode(".jpg", vid, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
         if success:
-            video_ph.image(buffer.tobytes(), channels="RGB", use_container_width=True)
+            video_ph.image(buffer.tobytes(), channels="RGB", width="stretch")
         else:
-            video_ph.image(vid, channels="RGB", use_container_width=True)
+            video_ph.image(vid, channels="RGB", width="stretch")
         
-        radar_ph.image(rad, channels="RGB", caption="Tactical Board (Meters)", use_container_width=True)
+        radar_ph.image(rad, channels="RGB", caption="Tactical Board (Meters)", width="stretch")
         icon = "🏀" if is_owner else ""
         stats_ph.markdown(f"""
         ### Frame: {fid}
