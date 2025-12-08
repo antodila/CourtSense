@@ -220,8 +220,8 @@ if analysis_mode == "🕹️ Navigazione (Manuale)":
     vid, rad, _, _, _, hold = render_dual_view(sel_frame, df, "Ottimizzata (HD)", selected_player, is_owner)
     
     if vid is not None:
-        video_ph.image(vid, channels="RGB", use_container_width=True)
-        radar_ph.image(rad, channels="RGB", caption="Tactical Board", use_container_width=True)
+        video_ph.image(vid, channels="RGB", width="stretch")
+        radar_ph.image(rad, channels="RGB", caption="Tactical Board", width="stretch")
         icon = "🏀" if is_owner else ""
         stats_ph.markdown(f"### Frame {sel_frame}\n**Player:** `{selected_player}` {icon}\n📏 **Dist:** {dt}m\n⚡ **Speed:** {spd} km/h")
 
