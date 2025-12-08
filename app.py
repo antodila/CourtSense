@@ -289,7 +289,142 @@ else: # AUTO (GENERAZIONE VIDEO)
         st.video(output_file)
 
     # --- REPORT FINALE ---
-    st.markdown("---"); st.subheader("📈 Report")
+    st.markdown("---"); st.subheader("📈 Report Azione")
+    
     if st.button("Genera Metriche"):
-        # (Copia qui il blocco report del codice precedente se serve)
-        pass
+        with st.spinner("Calcolo Analisi Completa..."):
+            # Filtra i dati nel range selezionato
+            sub = df[(df['frame_id'] >= start) & (df['frame_id'] <= end)]
+            players = sub[sub['team'].isin(['Red', 'White'])]
+            ball_sub = sub[sub['team'] == 'Ball']
+            duration_s = (end - start + 1) / FPS
+            
+            # --- 1. SPACING CHART ---
+            spac = []
+            for f, g in players.groupby('frame_id'):
+                for t in ['Red', 'White']:
+                    tg = g[g['team'] == t]
+                    if len(tg) >= 2:
+                        # Distanza media tra compagni (in pixel) convertita in metri
+                        dists_px = [np.linalg.norm(a-b) for a,b in combinations(tg[['x_feet','y_feet']].values, 2)]
+                        dists_m = [d * PX_TO_M for d in dists_px]
+                        spac.append({'f': f, 't': t, 'v': np.mean(dists_m)})
+            
+            if spac:
+                sdf = pd.DataFrame(spac)
+                fig1, ax1 = plt.subplots(figsize=(6, 4))
+                sns.lineplot(data=sdf, x='f', y='v', hue='t', palette={'Red':'red','White':'blue'}, ax=ax1)
+                
+                # Linee Medie
+                mr = sdf[sdf['t']=='Red']['v'].mean()
+                mw = sdf[sdf['t']=='White']['v'].mean()
+                ax1.axhline(mr, c='darkred', ls='--', label=f"Avg R: {mr:.1f}m")
+                ax1.axhline(mw, c='darkblue', ls='--', label=f"Avg W: {mw:.1f}m")
+                
+                ax1.set_title("Avg Team Spacing (Meters)")
+                ax1.set_xlabel("Frame")
+                ax1.set_ylabel("Meters")
+                ax1.legend(fontsize='small')
+                ax1.grid(True, alpha=0.3)
+                
+                # Visualizza Grafico 1
+                c1, c2 = st.columns(2)
+                c1.pyplot(fig1)
+
+            # --- 2. WORKLOAD, SPEED & POSSESSION ---
+            moves = []
+            speed_poss_data = []
+            
+            # Pre-calcolo possesso per il range selezionato
+            own_sub = ownership_table[ownership_table.index.isin(sub['frame_id'].unique())]
+            
+            for pid, g in players.groupby('player_unique_id'):
+                g = g.sort_values('frame_id')
+                
+                # Calcolo Distanza (Pixel -> Metri)
+                # Smoothing per il report
+                g['xm'] = g['x_feet'].rolling(window=SMOOTHING_WINDOW, min_periods=1).mean()
+                g['ym'] = g['y_feet'].rolling(window=SMOOTHING_WINDOW, min_periods=1).mean()
+                
+                steps_px = np.sqrt(np.diff(g['xm'], prepend=g['xm'].iloc[0])**2 + np.diff(g['ym'], prepend=g['ym'].iloc[0])**2)
+                
+                # Filtro fisico (Pixel)
+                steps_px = np.where(steps_px > MAX_PIXEL_STEP, 0, steps_px)
+                
+                # Noise Gate su velocità istantanea stimata
+                # Se in questo frame la velocità era < 3 km/h, azzera lo step
+                inst_speed = (steps_px * FPS * PX_TO_M) * 3.6
+                steps_px[inst_speed < MIN_SPEED_THRESHOLD] = 0
+                
+                steps_m = steps_px * PX_TO_M
+                
+                # Possesso
+                is_poss = g['frame_id'].isin(own_sub[own_sub['player_unique_id'] == pid].index).values
+                
+                tot_m = np.sum(steps_m)
+                off_m = np.sum(steps_m[~is_poss])
+                poss_s = is_poss.sum() / FPS
+                avg_spd = (tot_m / duration_s) * 3.6 if duration_s > 0 else 0
+                
+                moves.append({'Player': pid, 'Dist': tot_m, 'Type': 'Total', 'Team': g['team'].iloc[0]})
+                moves.append({'Player': pid, 'Dist': off_m, 'Type': 'Off-Ball', 'Team': g['team'].iloc[0]})
+                
+                speed_poss_data.append({'Player': pid, 'Team': g['team'].iloc[0], 'Speed': avg_spd, 'Poss': poss_s})
+            
+            if moves:
+                mdf = pd.DataFrame(moves)
+                sp_df = pd.DataFrame(speed_poss_data)
+                
+                # KPI Calculation
+                atr = mdf[(mdf['Team']=='Red') & (mdf['Type']=='Total')]['Dist'].mean()
+                aro = mdf[(mdf['Team']=='Red') & (mdf['Type']=='Off-Ball')]['Dist'].mean()
+                awt = mdf[(mdf['Team']=='White') & (mdf['Type']=='Total')]['Dist'].mean()
+                awo = mdf[(mdf['Team']=='White') & (mdf['Type']=='Off-Ball')]['Dist'].mean()
+                
+                asr = sp_df[sp_df['Team']=='Red']['Speed'].mean()
+                apr = sp_df[sp_df['Team']=='Red']['Poss'].mean()
+                asw = sp_df[sp_df['Team']=='White']['Speed'].mean()
+                apw = sp_df[sp_df['Team']=='White']['Poss'].mean()
+                
+                # KPI Display
+                st.markdown("### 📊 Team Averages")
+                k1, k2 = st.columns(2)
+                k1.info(f"🔴 **Red:**\n- Dist: {atr:.1f}m\n- Off-Ball: {aro:.1f}m\n- Speed: {asr:.1f} km/h\n- Poss: {apr:.1f}s")
+                k2.info(f"⚪ **White:**\n- Dist: {awt:.1f}m\n- Off-Ball: {awo:.1f}m\n- Speed: {asw:.1f} km/h\n- Poss: {apw:.1f}s")
+                
+                # Grafico Workload (c2 del blocco Spacing o nuova riga)
+                fig2, ax2 = plt.subplots(figsize=(6, 5))
+                sns.barplot(data=mdf, x='Player', y='Dist', hue='Type', palette={'Total':'gray', 'Off-Ball':'limegreen'}, ax=ax2)
+                # Linee medie
+                ax2.axhline(atr, c='darkred', ls='--', lw=1); ax2.axhline(aro, c='red', ls=':', lw=1.5)
+                ax2.axhline(awt, c='darkblue', ls='--', lw=1); ax2.axhline(awo, c='blue', ls=':', lw=1.5)
+                
+                ax2.tick_params(axis='x', rotation=90)
+                ax2.set_title("Workload (Meters)")
+                ax2.legend(fontsize='x-small')
+                ax2.grid(True, axis='y', alpha=0.3)
+                c2.pyplot(fig2)
+                
+                # Nuova riga per Speed e Possesso
+                r2c1, r2c2 = st.columns(2)
+                
+                # Grafico Possesso
+                fig3, ax3 = plt.subplots(figsize=(6, 4))
+                sns.barplot(data=sp_df, x='Player', y='Poss', hue='Team', palette={'Red':'red', 'White':'blue'}, ax=ax3)
+                ax3.tick_params(axis='x', rotation=90)
+                ax3.set_title("Possession Time (s)")
+                ax3.grid(True, axis='y', alpha=0.3)
+                r2c1.pyplot(fig3)
+                
+                # Grafico Velocità
+                fig4, ax4 = plt.subplots(figsize=(6, 4))
+                sns.barplot(data=sp_df, x='Player', y='Speed', hue='Team', palette={'Red':'red', 'White':'blue'}, ax=ax4)
+                # Linee medie speed
+                ax4.axhline(asr, c='darkred', ls='--', label='Avg R')
+                ax4.axhline(asw, c='darkblue', ls='--', label='Avg W')
+                
+                ax4.tick_params(axis='x', rotation=90)
+                ax4.set_title("Avg Speed (km/h)")
+                ax4.grid(True, axis='y', alpha=0.3)
+                ax4.legend(fontsize='small')
+                r2c2.pyplot(fig4)
