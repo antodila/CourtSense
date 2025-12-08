@@ -261,8 +261,8 @@ git push
 
 ## 👤 Autore
 
-**CourtSense** - Analisi Tattica Sport  
-Magistrale Sport Tech | Università di Trento
+**CourtSense** - Analisi Tattica Basket  
+Master in Information Engineering, course of Sport Tech | Università di Trento
 
 ---
 
