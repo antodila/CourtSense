@@ -5,14 +5,12 @@
 # 📁 FILE E CARTELLE DA ESCLUDERE
 
 # File di tracking dati (generati da json_to_csv.py)
-tracking_data.csv
 
 # File temporanei per debug/testing
 app_pixel.py
 app_metri.py
 
 # Cartelle dataset (troppo grandi, sono in .json nel repo)
-datasets/
 not_dataset/
 
 # Cartelle temporanee (generate durante l'esecuzione)
