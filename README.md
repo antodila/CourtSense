@@ -265,13 +265,3 @@ git push
 Master in Information Engineering, course of Sport Tech | Università di Trento
 
 ---
-
-## 📝 Licenza
-
-MIT License - Vedi LICENSE file
-
----
-
-## 🤝 Contributi
-
-Per problemi o suggerimenti, apri una **Issue** o **Pull Request**!
