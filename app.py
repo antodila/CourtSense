@@ -10,12 +10,12 @@ from scipy.spatial import Voronoi, ConvexHull
 from matplotlib.patches import Polygon, Rectangle, Circle
 from itertools import combinations
 import imageio.v2 as imageio
+import shutil
 
 # --- CONFIGURAZIONE ---
 CSV_FILE = 'tracking_data.csv'
 IMAGES_FOLDER = 'datasets' 
-# Dimensioni base per il calcolo (non visualizzazione)
-RADAR_HEIGHT = 300 
+RADAR_HEIGHT = 300
 COURT_WIDTH = 3840 
 COURT_HEIGHT = 2160
 POSSESSION_THRESHOLD = 60 
@@ -28,6 +28,9 @@ PX_TO_M = REAL_WIDTH_M / COURT_WIDTH
 MAX_PIXEL_STEP = 100 
 SMOOTHING_WINDOW = 5
 MIN_SPEED_THRESHOLD = 3.0
+
+# Risoluzione per l'anteprima LIVE (leggera per non bloccare il browser)
+LIVE_PREVIEW_WIDTH = 800 
 
 # --- FUNZIONI UTILI ---
 def extract_frame_number(filename):
@@ -67,7 +70,6 @@ def load_data():
         df['action_id'] = df['frame_filename'].apply(lambda x: x.split('_frame')[0] if '_frame' in x else 'unknown')
     df['frame_id'] = df['frame_filename'].apply(extract_frame_number)
     df['player_unique_id'] = df['team'] + "_" + df['number'].astype(str)
-    
     if 'x_meters' not in df.columns:
         df['x_meters'] = df['x_feet'] * PX_TO_M
         df['y_meters'] = df['y_feet'] * (REAL_HEIGHT_M / COURT_HEIGHT) 
@@ -110,9 +112,8 @@ def calculate_advanced_stats_hybrid(df_action, player_id, current_frame, ownersh
     speed_kmh = 0.0
     if len(p_data) > 15:
         dist_last_15_px = step_px.tail(15).sum()
-        dist_last_15_m = dist_last_15_px * PX_TO_M
         time_s = 15 / FPS
-        speed_kmh = (dist_last_15_m / time_s) * 3.6
+        speed_kmh = (dist_last_15_px * PX_TO_M / time_s) * 3.6
         if speed_kmh < MIN_SPEED_THRESHOLD: speed_kmh = 0.0
 
     p_data = p_data.join(ownership_table, on='frame_id', rsuffix='_owner')
@@ -121,12 +122,13 @@ def calculate_advanced_stats_hybrid(df_action, player_id, current_frame, ownersh
     off_ball_px = step_px[~is_mine_buf].sum()
     off_ball_m = off_ball_px * PX_TO_M
     poss_frames = is_mine_buf.sum()
+    
     return int(total_dist_m), int(off_ball_m), round(speed_kmh, 1), poss_frames
 
-# --- RENDERING VIDEO (BROADCAST OVERLAY) ---
-def render_broadcast_view(f_id, df, quality_mode, highlight_id=None, is_possessor=False, stats_info=None):
+# --- RENDERING VIDEO (QUALITY SWITCH) ---
+def render_dual_view(f_id, df, quality_mode, highlight_id=None, is_possessor=False):
     fname_row = df[df['frame_id'] == f_id]
-    if fname_row.empty: return None
+    if fname_row.empty: return None, None, 0, 0, 0, False
     fname = fname_row['frame_filename'].iloc[0]
     
     img_path = None
@@ -134,6 +136,7 @@ def render_broadcast_view(f_id, df, quality_mode, highlight_id=None, is_possesso
         p = fname_row['image_path'].iloc[0]
         if os.path.exists(p): img_path = p
         elif os.path.exists(p.replace('\\', '/')): img_path = p.replace('\\', '/')
+        
     if img_path is None: 
         if 'action_id' in fname_row.columns:
             act = fname_row['action_id'].iloc[0]
@@ -147,15 +150,21 @@ def render_broadcast_view(f_id, df, quality_mode, highlight_id=None, is_possesso
         frame_img_orig = np.zeros((720, 1280, 3), dtype=np.uint8)
         cv2.putText(frame_img_orig, "IMG NOT FOUND", (50, 360), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
 
-    # 1. Video Base (Resize per fluidità)
-    target_w = 3840 if quality_mode == "Massima (4K)" else 800
-    scale = target_w / frame_img_orig.shape[1]
-    frame_img = cv2.resize(frame_img_orig, (0, 0), fx=scale, fy=scale)
-    H_vid, W_vid = frame_img.shape[:2]
+    # --- QUALITY LOGIC ---
+    # Se "Massima (4K)" -> Usa risoluzione originale (3840px o simile)
+    # Se "Ottimizzata (HD)" o per streaming live -> Usa 800px
+    if quality_mode == "Massima (4K)":
+        # Nessun resize, usa originale
+        frame_img = frame_img_orig
+        scale = 1.0
+    else:
+        # Resize per fluidità (HD o meno)
+        target_w = 1280 if quality_mode == "Ottimizzata (HD)" else LIVE_PREVIEW_WIDTH
+        scale = target_w / frame_img_orig.shape[1]
+        frame_img = cv2.resize(frame_img_orig, (0, 0), fx=scale, fy=scale)
     
-    # 2. Genera Radar ad Alta Definizione (poi lo ridimensioniamo)
-    radar_base = np.zeros((RADAR_HEIGHT, 600, 3), dtype=np.uint8)
-    draw_radar_court(radar_base, 600, RADAR_HEIGHT)
+    radar_img = np.zeros((RADAR_HEIGHT, 600, 3), dtype=np.uint8)
+    draw_radar_court(radar_img, 600, RADAR_HEIGHT)
     
     frame_data = df[df['frame_id'] == f_id]
     sx, sy = 600 / REAL_WIDTH_M, RADAR_HEIGHT / REAL_HEIGHT_M
@@ -166,110 +175,31 @@ def render_broadcast_view(f_id, df, quality_mode, highlight_id=None, is_possesso
         xm = row['x_feet'] * PX_TO_M; ym = row['y_feet'] * (REAL_HEIGHT_M / COURT_HEIGHT)
         rx = int(xm * sx); ry = int(ym * sy)
         rx = max(0, min(rx, 600-1)); ry = max(0, min(ry, RADAR_HEIGHT-1))
+        
         t_str = str(row['team']); raw_c = str(row.get('raw_class', '')).lower()
         
         if t_str == 'Ball':
-            cv2.circle(radar_base, (rx, ry), 8, (0, 165, 255), -1)
+            cv2.circle(radar_img, (rx, ry), 8, (0, 165, 255), -1)
         elif 'Ref' in t_str or 'ref' in raw_c:
-            cv2.circle(radar_base, (rx, ry), 5, (0, 255, 0), -1); ref_c += 1
+            cv2.circle(radar_img, (rx, ry), 5, (0, 255, 0), -1); ref_c += 1
         elif t_str in ['Red', 'White']:
             c = (0, 0, 255) if t_str == 'Red' else (255, 255, 255)
             if t_str == 'Red': c = (0, 0, 255)
-            cv2.circle(radar_base, (rx, ry), 6, c, -1)
+            cv2.circle(radar_img, (rx, ry), 6, c, -1)
             
             if highlight_id and row['player_unique_id'] == highlight_id:
-                # Disegna Box sul video
                 bx, by = int(row['bbox_x']*scale), int(row['bbox_y']*scale)
                 bw, bh = int(row['bbox_w']*scale), int(row['bbox_h']*scale)
                 col_box = (0, 165, 255) if is_possessor else (0, 255, 255)
-                cv2.rectangle(frame_img, (bx, by), (bx+bw, by+bh), col_box, 2)
+                cv2.rectangle(frame_img, (bx, by), (bx+bw, by+bh), col_box, 3)
                 cv2.putText(frame_img, row['player_unique_id'], (bx, by-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, col_box, 2)
-                # Evidenzia su radar
-                cv2.circle(radar_base, (rx, ry), 12, col_box, 2)
+                cv2.circle(radar_img, (rx, ry), 12, col_box, 2)
 
-    # 3. OVERLAY RADAR (Minimappa in basso a destra)
-    # Dimensione minimappa: 25% larghezza video
-    mini_w = int(W_vid * 0.25)
-    mini_h = int(mini_w * (RADAR_HEIGHT/600))
-    radar_mini = cv2.resize(radar_base, (mini_w, mini_h))
-    
-    # Bordo e Sfondo semi-trasparente per il radar
-    # Creiamo una regione di interesse (ROI) nel video
-    pad = 20
-    y1 = H_vid - mini_h - pad; y2 = H_vid - pad
-    x1 = W_vid - mini_w - pad; x2 = W_vid - pad
-    
-    if y1 > 0 and x1 > 0:
-        roi = frame_img[y1:y2, x1:x2]
-        # Blend radar con sfondo (semi-trasparenza 80%)
-        blended = cv2.addWeighted(roi, 0.2, radar_mini, 0.8, 0)
-        # Bordo bianco
-        cv2.rectangle(blended, (0,0), (mini_w-1, mini_h-1), (200,200,200), 2)
-        frame_img[y1:y2, x1:x2] = blended
-
-    # 4. OVERLAY STATISTICHE (HUD in alto a sinistra)
-    if stats_info:
-        # (dist_tot, dist_off, poss_s, speed)
-        d_tot, d_off, poss, spd = stats_info
-        
-        # Sfondo nero semi-trasparente per il testo
-        overlay = frame_img.copy()
-        cv2.rectangle(overlay, (20, 20), (350, 140), (0, 0, 0), -1)
-        frame_img = cv2.addWeighted(overlay, 0.6, frame_img, 0.4, 0)
-        
-        # Testo
-        col_txt = (0, 255, 255) # Giallo
-        icon = " (BALL)" if is_possessor else ""
-        
-        cv2.putText(frame_img, f"PLAYER: {highlight_id}{icon}", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
-        cv2.putText(frame_img, f"DIST: {d_tot} m", (30, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, col_txt, 1)
-        cv2.putText(frame_img, f"SPEED: {spd} km/h", (30, 105), cv2.FONT_HERSHEY_SIMPLEX, 0.6, col_txt, 1)
-        cv2.putText(frame_img, f"POSS: {poss}", (30, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.6, col_txt, 1)
-
-    return cv2.cvtColor(frame_img, cv2.COLOR_BGR2RGB)
-
-# --- GRAFICI STATICI (Invariati) ---
-def generate_static_voronoi(frame_data, title=None):
-    fig, ax = plt.subplots(figsize=(10, 6))
-    draw_mpl_court(ax)
-    players = frame_data[frame_data['team'].isin(['Red', 'White'])]
-    if len(players) >= 4:
-        points = players[['x_feet', 'y_feet']].values
-        dummy = np.array([[-200, -200], [4000, -200], [4000, 2400], [-200, 2400]])
-        try:
-            vor = Voronoi(np.vstack([points, dummy]))
-            for i in range(len(points)):
-                region = vor.regions[vor.point_region[i]]
-                if -1 not in region and len(region) > 0:
-                    c = 'red' if players.iloc[i]['team'] == 'Red' else 'blue'
-                    ax.add_patch(Polygon(vor.vertices[region], facecolor=c, alpha=0.4, edgecolor='white'))
-        except: pass
-    for _, r in players.iterrows():
-        c = 'red' if r['team']=='Red' else 'blue'
-        ax.scatter(r['x_feet'], r['y_feet'], c=c, s=80, edgecolors='white', zorder=5)
-    ax.set_xlim(0, COURT_WIDTH); ax.set_ylim(COURT_HEIGHT, 0); ax.axis('off')
-    if title: ax.set_title(title, fontsize=15)
-    return fig
-
-def generate_static_hull(frame_data):
-    fig, ax = plt.subplots(figsize=(10, 6))
-    draw_mpl_court(ax)
-    colors = {'Red': 'red', 'White': 'blue'}; fill = {'Red': 'salmon', 'White': 'lightblue'}
-    for team in ['Red', 'White']:
-        points = frame_data[frame_data['team'] == team][['x_feet', 'y_feet']].values
-        ax.scatter(points[:,0], points[:,1], c=colors[team], s=80, zorder=5)
-        if len(points) >= 3:
-            try:
-                hull = ConvexHull(points)
-                poly = Polygon(points[hull.vertices], facecolor=fill[team], edgecolor=colors[team], alpha=0.3, lw=2, linestyle='--')
-                ax.add_patch(poly)
-            except: pass
-    ax.set_xlim(0, COURT_WIDTH); ax.set_ylim(COURT_HEIGHT, 0); ax.axis('off')
-    return fig
+    return cv2.cvtColor(frame_img, cv2.COLOR_BGR2RGB), cv2.cvtColor(radar_img, cv2.COLOR_BGR2RGB), 0, 0, 0, is_possessor
 
 # --- MAIN ---
 st.set_page_config(page_title="CourtSense", layout="wide")
-st.title("🏀 CourtSense: Broadcast Analytics")
+st.title("🏀 CourtSense: Tactical Dashboard")
 
 df_full = load_data()
 if df_full is None: st.error("CSV non trovato."); st.stop()
@@ -287,9 +217,43 @@ min_f, max_f = int(min(unique_frames)), int(max(unique_frames))
 player_list = sorted([p for p in df['player_unique_id'].unique() if "Ball" not in p and "Ref" not in p])
 
 analysis_mode = st.sidebar.radio("Modalità:", ("🕹️ Navigazione (Manuale)", "▶️ Genera Video (Auto)"))
+quality_mode = st.sidebar.radio("Qualità:", ("Ottimizzata (HD)", "Massima (4K)"))
+st.sidebar.markdown("---")
 selected_player = st.sidebar.selectbox("Traccia Giocatore:", player_list)
 
-video_ph = st.empty() # Placeholder unico a tutta larghezza (schermo intero)
+col_main, col_side = st.columns([3, 1])
+video_ph = col_main.empty(); radar_ph = col_side.empty(); stats_ph = col_side.empty()
+
+def update_ui_elements(fid, dist_tot, dist_off, poss_frames, speed):
+    is_owner = False
+    try:
+        if fid in ownership_table.index and ownership_table.loc[fid]['player_unique_id'] == selected_player: is_owner = True
+    except: pass
+    
+    # In LIVE preview usiamo qualità bassa per fluidità
+    vid, rad, rc, wc, ref, hold = render_dual_view(fid, df, "Ottimizzata (HD)", selected_player, is_owner)
+    
+    if vid is not None:
+        # Compressione JPEG per Live Preview
+        success, buffer = cv2.imencode(".jpg", vid, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+        if success:
+            video_ph.image(buffer.tobytes(), channels="RGB", width='stretch')
+        else:
+            video_ph.image(vid, channels="RGB", width='stretch')
+        
+        radar_ph.image(rad, channels="RGB", caption="Tactical Board (Meters)", width='stretch')
+        icon = "🏀" if is_owner else ""
+        stats_ph.markdown(f"""
+        ### Frame: {fid}
+        **Focus:** `{selected_player}` {icon}
+        📏 **Dist:** {int(dist_tot)} m
+        🏃 **Off-Ball:** {int(dist_off)} m
+        ⚡ **Speed:** {speed} km/h
+        ⏱️ **Poss:** {(poss_frames/FPS):.1f} s
+        ---
+        🔴 R:{rc} | ⚪ W:{wc}
+        """)
+    return hold
 
 if analysis_mode == "🕹️ Navigazione (Manuale)":
     sel_frame = st.sidebar.slider("Frame:", min_f, max_f, min_f)
@@ -300,80 +264,76 @@ if analysis_mode == "🕹️ Navigazione (Manuale)":
         if sel_frame in ownership_table.index and ownership_table.loc[sel_frame]['player_unique_id'] == selected_player: is_owner = True
     except: pass
     
-    # Renderizza UNICA immagine composta
-    frame_final = render_broadcast_view(sel_frame, df, "Ottimizzata (HD)", selected_player, is_owner, 
-                                      stats_info=(dt, do, f"{(pf/FPS):.1f} s", spd))
+    # In manuale rispettiamo la qualità scelta dall'utente (anche 4K)
+    vid, rad, _, _, _, hold = render_dual_view(sel_frame, df, quality_mode, selected_player, is_owner)
     
-    if frame_final is not None:
-        video_ph.image(frame_final, channels="RGB", use_container_width=True)
+    if vid is not None:
+        video_ph.image(vid, channels="RGB", width='stretch')
+        radar_ph.image(rad, channels="RGB", caption="Tactical Board", width='stretch')
+        icon = "🏀" if is_owner else ""
+        stats_ph.markdown(f"### Frame {sel_frame}\n**Player:** `{selected_player}` {icon}\n📏 **Dist:** {dt}m\n⚡ **Speed:** {spd} km/h")
+    
+    # Grafici Statici (opzionali per manuale)
 
-    st.markdown("---"); c1, c2 = st.columns(2)
-    fdata = df[df['frame_id'] == sel_frame]
-    if c1.button("📸 Voronoi (Pixel)"): c1.pyplot(generate_static_voronoi(fdata))
-    if c2.button("🛡️ Convex Hull (Pixel)"): c2.pyplot(generate_static_hull(fdata))
-
-else: # AUTO
-    st.sidebar.info("Genera un video MP4 fluido con overlay tattico.")
+else: # AUTO (GENERAZIONE VIDEO)
+    st.info(f"ℹ️ Generazione Video (Quality: {quality_mode}). Attendere prego...")
     start, end = st.sidebar.select_slider("Clip:", options=unique_frames, value=(min_f, min(min_f+40, max_f)))
     
-    if st.sidebar.button("🎥 GENERA VIDEO TV-STYLE"):
+    if st.sidebar.button("🎥 GENERA VIDEO ANALISI"):
         frames = [f for f in unique_frames if start <= f <= end]
-        output_file = "broadcast_analysis.mp4"
-        prog_bar = st.progress(0, "Rendering Broadcast...")
+        output_file = "analysis_output.mp4"
+        prog_bar = st.progress(0, "Rendering...")
         
-        cum_m = 0; cum_off_m = 0; pos_buffer = [] 
-        curr_poss_frames = 0
+        cum_m = 0; pos_buffer = []
         video_frames = []
         
         for i, f_id in enumerate(frames):
             prog_bar.progress(int(i / len(frames) * 100))
             
+            # Calcoli
             curr = df[(df['frame_id']==f_id) & (df['player_unique_id']==selected_player)]
-            step_m = 0; speed_kmh = 0.0
-            
+            spd = 0.0
             if not curr.empty:
                 cx, cy = curr.iloc[0]['x_feet'], curr.iloc[0]['y_feet']
-                pos_buffer.append((cx, cy)); 
+                pos_buffer.append((cx, cy))
                 if len(pos_buffer)>15: pos_buffer.pop(0)
-                
                 if len(pos_buffer)>=2:
-                    cx_s = np.mean([p[0] for p in pos_buffer[-3:]]); cy_s = np.mean([p[1] for p in pos_buffer[-3:]])
-                    if i > 0: # prev exists in loop logic implicitly by buffer
-                        prev = np.mean([p for p in pos_buffer[-4:-1]], axis=0) if len(pos_buffer)>3 else pos_buffer[0]
-                        raw_step = np.sqrt((cx_s-prev[0])**2 + (cy_s-prev[1])**2)
-                        if raw_step < MAX_PIXEL_STEP:
-                            step_m = raw_step * PX_TO_M
-                            cum_m += step_m
-
+                    step = np.sqrt((cx-pos_buffer[-2][0])**2 + (cy-pos_buffer[-2][1])**2)
+                    if step < MAX_PIXEL_STEP: cum_m += step * PX_TO_M
                 if len(pos_buffer)>=10:
-                    d = np.sqrt((pos_buffer[-1][0]-pos_buffer[0][0])**2 + (pos_buffer[-1][1]-pos_buffer[0][1])**2)
-                    tm = (len(pos_buffer)-1)/FPS
-                    raw_spd = (d * PX_TO_M / tm) * 3.6
-                    if raw_spd > MIN_SPEED_THRESHOLD: speed_kmh = min(raw_spd, 36.0)
+                     d = np.sqrt((pos_buffer[-1][0]-pos_buffer[0][0])**2 + (pos_buffer[-1][1]-pos_buffer[0][1])**2)
+                     spd = (d * PX_TO_M / ((len(pos_buffer)-1)/FPS)) * 3.6
 
             is_owner = False
             try:
                 if f_id in ownership_table.index and ownership_table.loc[f_id]['player_unique_id'] == selected_player: is_owner = True
             except: pass
             
-            if is_owner: curr_poss_frames += 1
-            else: cum_off_m += step_m
+            # Render HQ per il video finale (rispetta la scelta Quality)
+            vid, rad, _, _, _, _ = render_dual_view(f_id, df, quality_mode, selected_player, is_owner)
             
-            # Rendering Broadcast Frame
-            stats_tuple = (int(cum_m), int(cum_off_m), f"{(curr_poss_frames/FPS):.1f}s", round(speed_kmh, 1))
-            final_img = render_broadcast_view(f_id, df, "Ottimizzata (HD)", selected_player, is_owner, stats_tuple)
-            
-            if final_img is not None:
-                video_frames.append(final_img)
+            if vid is not None:
+                # Layout Video Finale
+                h, w, _ = vid.shape
+                rad_res = cv2.resize(rad, (int(rad.shape[1] * (h / rad.shape[0])), h))
+                combined = np.hstack((vid, rad_res))
+                
+                # Overlay
+                icon = " (BALL)" if is_owner else ""
+                text = f"Ply: {selected_player}{icon} | Dist: {int(cum_m)}m | Spd: {spd:.1f} km/h"
+                cv2.rectangle(combined, (0, 0), (w, 60), (0,0,0), -1)
+                cv2.putText(combined, text, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+                
+                video_frames.append(combined)
 
         prog_bar.progress(90, "Salvataggio MP4...")
         imageio.mimwrite(output_file, video_frames, fps=30, macro_block_size=1)
         
         prog_bar.empty()
-        st.success("Video Broadcast Pronto!")
+        st.success("Video Generato!")
         st.video(output_file)
 
-    st.markdown("---"); st.subheader("📈 Report")
+    st.markdown("---"); st.subheader("📈 Report Azione")
     if st.button("Genera Metriche"):
         with st.spinner("Calcolo Analisi Completa..."):
             # Filtra i dati nel range selezionato
