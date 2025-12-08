@@ -50,31 +50,31 @@ SMOOTHING_WINDOW = 5                  # Media mobile su 5 frame per smoothare po
 # FUNZIONI UTILITY - Parser e Disegno
 # ═══════════════════════════════════════════════════════════════════════════
 def extract_frame_number(filename):
-    """
-    ⬇️ Estrae numero frame da stringa filename
-    Input:  "azione_01_frame_0045.jpg" → Output: 45
-    Regex: Cerca pattern "frame_(\d+)" nel nome file
-    """
+  #  """
+  #  ⬇️ Estrae numero frame da stringa filename
+  #  Input:  "azione_01_frame_0045.jpg" → Output: 45
+  #  Regex: Cerca pattern "frame_(\d+)" nel nome file
+   # """
     match = re.search(r'frame_(\d+)', str(filename))
     if match: return int(match.group(1))
     return 0
 
 def draw_radar_court(img, width, height, color=(200, 200, 200)):
-    """
-    🎨 Disegna campo di basket su immagine OpenCV (in PIXEL)
-    ├─ Linea centrale verticale
-    ├─ Cerchio centro (R=1.8m)
-    ├─ Rettangoli vernice (pitture) per ciascun lato
-    ├─ Cerchi goaltender
-    └─ Archi 3 punti (se basket)
+   # """
+  #  🎨 Disegna campo di basket su immagine OpenCV (in PIXEL)
+   # ├─ Linea centrale verticale
+   # ├─ Cerchio centro (R=1.8m)
+  #  ├─ Rettangoli vernice (pitture) per ciascun lato
+  #  ├─ Cerchi goaltender
+   # └─ Archi 3 punti (se basket)
     
-    Args:
-        img: Array OpenCV (BGR)
-        width, height: Dimensioni in pixel (per radar tipicamente 600x300)
-        color: Colore linee (B, G, R tuple)
+   # Args:
+  #      img: Array OpenCV (BGR)
+  #      width, height: Dimensioni in pixel (per radar tipicamente 600x300)
+  #      color: Colore linee (B, G, R tuple)
     
-    Note: Usa PIXEL per disegno, ma scala basata su METRI reali
-    """
+   # Note: Usa PIXEL per disegno, ma scala basata su METRI reali
+   # """
     thick = 2
     # Scala radar: quanti pixel del radar per 1 metro reale?
     ppm = width / REAL_WIDTH_M  # pixel per metro
@@ -104,19 +104,19 @@ def draw_radar_court(img, width, height, color=(200, 200, 200)):
     return img
 
 def draw_mpl_court(ax, color='black', lw=2):
-    """
-    Disegna campo in METRI per matplotlib (grafici statici/Voronoi/HeatMap)
+  #  """
+  #  Disegna campo in METRI per matplotlib (grafici statici/Voronoi/HeatMap)
+  #  
+   # Simile a draw_radar_court ma:
+   # - Usa coordinate METRICHE (non pixel)
+   # - Disegna su asse matplotlib
+   # - Perfetto per overlay con dati in metri
     
-    Simile a draw_radar_court ma:
-    - Usa coordinate METRICHE (non pixel)
-    - Disegna su asse matplotlib
-    - Perfetto per overlay con dati in metri
-    
-    Args:
-        ax: Asse matplotlib
-        color: Colore linee
-        lw: Line width
-    """
+  #  Args:
+  #      ax: Asse matplotlib
+    #    color: Colore linee
+   #     lw: Line width
+   # """
     # Rettangolo campo intero
     court = Rectangle((0, 0), REAL_WIDTH_M, REAL_HEIGHT_M, linewidth=lw, color=color, fill=False)
     ax.add_patch(court)
@@ -133,26 +133,26 @@ def draw_mpl_court(ax, color='black', lw=2):
 
 @st.cache_data
 def load_data():
-    """
-    Carica e processa CSV di tracking
+   # """
+    #Carica e processa CSV di tracking
     
-    Pipeline:
-    1. Leggi CSV
-    2. Estrai action_id dal nome file (es: "azione_01")
-    3. Estrai frame_id numerici
-    4. Crea player_unique_id = team + numero (es: "Red_5", "White_12")
-    5. CONVERTI coordinate da pixel a METRI al volo
-       ├─ x_feet * PX_TO_M → x_meters
-       └─ y_feet * (REAL_HEIGHT_M/COURT_HEIGHT) → y_meters
+   # Pipeline:
+   # 1. Leggi CSV
+   # 2. Estrai action_id dal nome file (es: "azione_01")
+   # 3. Estrai frame_id numerici
+   # 4. Crea player_unique_id = team + numero (es: "Red_5", "White_12")
+   # 5. CONVERTI coordinate da pixel a METRI al volo
+   #    ├─ x_feet * PX_TO_M → x_meters
+   #    └─ y_feet * (REAL_HEIGHT_M/COURT_HEIGHT) → y_meters
     
-    Returns:
-        DataFrame processato con colonne:
-        - frame_filename, frame_id, action_id
-        - team, number, player_unique_id
-        - bbox_x/y/w/h (bounding box in pixel)
-        - x_feet, y_feet (posizioni raw in pixel)
-        - x_meters, y_meters (posizioni convertite in METRI) ✓ CRITICO
-    """
+   # Returns:
+   #     DataFrame processato con colonne:
+   #     - frame_filename, frame_id, action_id
+   #     - team, number, player_unique_id
+   #     - bbox_x/y/w/h (bounding box in pixel)
+   #     - x_feet, y_feet (posizioni raw in pixel)
+   #     - x_meters, y_meters (posizioni convertite in METRI) ✓ CRITICO
+   # """
     if not os.path.exists(CSV_FILE): return None
     df = pd.read_csv(CSV_FILE)
     
@@ -177,27 +177,27 @@ def load_data():
 # LOGICA POSSESSO - Rileva chi possiede la palla
 # ═══════════════════════════════════════════════════════════════════════════
 def get_possession_table(df_subset):
-    """
-    🏀 ALGORITMO BOX-IN-BOX - Determina chi possiede la palla
+  #  """
+  #  🏀 ALGORITMO BOX-IN-BOX - Determina chi possiede la palla
     
-    Logica:
-    1. Estrai bounding box della palla (Ball)
-    2. Per ogni frame, controlla quali giocatori hanno palla nel loro box
-    3. Se multipli giocatori "contengono" la palla → vince il più vicino
+  #  Logica:
+  #  1. Estrai bounding box della palla (Ball)
+  #  2. Per ogni frame, controlla quali giocatori hanno palla nel loro box
+  #  3. Se multipli giocatori "contengono" la palla → vince il più vicino
     
-    Dettagli tecnici:
-    ├─ Shrink 5% sulla larghezza e 10% sull'altezza per robustezza
-    ├─ Usa centro bounding box palla (bx_c, by_c)
-    ├─ Confronta con box giocatore ridotto
-    └─ Distanza euclidea in PIXEL per risolvere conflitti
+  #  Dettagli tecnici:
+  #  ├─ Shrink 5% sulla larghezza e 10% sull'altezza per robustezza
+  #  ├─ Usa centro bounding box palla (bx_c, by_c)
+  #  ├─ Confronta con box giocatore ridotto
+  #  └─ Distanza euclidea in PIXEL per risolvere conflitti
     
-    Args:
-        df_subset: DataFrame con frame di una azione
+  #  Args:
+  #      df_subset: DataFrame con frame di una azione
     
-    Returns:
-        DataFrame con colonne [frame_id, player_unique_id] per frame con possesso
-        (Indice = frame_id, valore = chi possiede la palla)
-    """
+   # Returns:
+   #     DataFrame con colonne [frame_id, player_unique_id] per frame con possesso
+   #     (Indice = frame_id, valore = chi possiede la palla)
+   # """
     # Estrai dati palla e giocatori
     ball_df = df_subset[df_subset['team'] == 'Ball'][['frame_id', 'bbox_x', 'bbox_y', 'bbox_w', 'bbox_h']]
     players_df = df_subset[df_subset['team'].isin(['Red', 'White'])].copy()
@@ -235,32 +235,32 @@ def get_possession_table(df_subset):
 # STATISTICHE IBRIDE - Calcoli in PIXEL, output in METRI
 # ═══════════════════════════════════════════════════════════════════════════
 def calculate_advanced_stats_hybrid(df_action, player_id, current_frame, ownership_table):
-    """
-    📈 Calcola metriche avanzate PER UN GIOCATORE fino a un frame specifico
+  #  """
+  #  📈 Calcola metriche avanzate PER UN GIOCATORE fino a un frame specifico
     
-    Metriche calcolate:
-    1️⃣  total_dist_m        → Distanza totale percorsa (m)
-    2️⃣  off_ball_m          → Distanza percorsa SENZA palla (m)
-    3️⃣  speed_kmh           → Velocità media ultimi 15 frame (km/h)
-    4️⃣  poss_frames         → Frame in cui possiede palla
+  #  Metriche calcolate:
+  #  1️⃣  total_dist_m        → Distanza totale percorsa (m)
+   # 2️⃣  off_ball_m          → Distanza percorsa SENZA palla (m)
+  #  3️⃣  speed_kmh           → Velocità media ultimi 15 frame (km/h)
+  #  4️⃣  poss_frames         → Frame in cui possiede palla
     
-    Pipeline:
-    ├─ Filtra dati giocatore fino a current_frame
-    ├─ SMOOTHING in pixel (media mobile 5 frame)
-    ├─ Calcola step in pixel, filtra picchi >100px
-    ├─ Converte in METRI tramite PX_TO_M
-    ├─ Determina frame con possesso da ownership_table
-    └─ Separa distanza On-Ball vs Off-Ball
+    #Pipeline:
+   # ├─ Filtra dati giocatore fino a current_frame
+  #  ├─ SMOOTHING in pixel (media mobile 5 frame)
+  #  ├─ Calcola step in pixel, filtra picchi >100px
+  #  ├─ Converte in METRI tramite PX_TO_M
+  #  ├─ Determina frame con possesso da ownership_table
+   # └─ Separa distanza On-Ball vs Off-Ball
     
-    Args:
-        df_action: DataFrame dell'intera azione
-        player_id: ID giocatore univoco (es: "Red_5")
-        current_frame: Frame fino al quale calcolare
-        ownership_table: DataFrame con chi possiede palla per frame
+  #  Args:
+  #      df_action: DataFrame dell'intera azione
+   #     player_id: ID giocatore univoco (es: "Red_5")
+  #      current_frame: Frame fino al quale calcolare
+  #      ownership_table: DataFrame con chi possiede palla per frame
     
-    Returns:
-        (total_dist_m, off_ball_m, speed_kmh, poss_frames)
-    """
+  #  Returns:
+  #      (total_dist_m, off_ball_m, speed_kmh, poss_frames)
+   # """
     # Filtra dati del giocatore fino al frame corrente
     p_data = df_action[(df_action['player_unique_id'] == player_id) & (df_action['frame_id'] <= current_frame)].sort_values('frame_id')
     if len(p_data) < 5: return 0, 0, 0, 0  # Skip se dati insufficienti
@@ -320,26 +320,26 @@ def calculate_advanced_stats_hybrid(df_action, player_id, current_frame, ownersh
 # GRAFICI STATICI - Voronoi, Convex Hull, Heatmap
 # ═══════════════════════════════════════════════════════════════════════════
 def generate_static_voronoi(frame_data, title=None):
-    """
-    🔷 Genera diagramma di Voronoi per un frame
+ #   """
+ #   🔷 Genera diagramma di Voronoi per un frame
     
-    Voronoi = divisione campo in aree (una per giocatore) dove ogni pixel
-    appartiene al giocatore più vicino. Utile per analizzare "spazio controllato"
+  #  Voronoi = divisione campo in aree (una per giocatore) dove ogni pixel
+  #  appartiene al giocatore più vicino. Utile per analizzare "spazio controllato"
     
-    Processo:
-    1. Estrai posizioni giocatori in METRI
-    2. Aggiungi punti dummy attorno al campo (evita artefatti bordo)
-    3. Calcola diagramma Voronoi
-    4. Colora regioni: Red=rosso, White=blu
-    5. Sovrapponi posizioni giocatori e palla
+  #  Processo:
+  #  1. Estrai posizioni giocatori in METRI
+  #  2. Aggiungi punti dummy attorno al campo (evita artefatti bordo)
+  #  3. Calcola diagramma Voronoi
+   # 4. Colora regioni: Red=rosso, White=blu
+  #  5. Sovrapponi posizioni giocatori e palla
     
-    Args:
-        frame_data: DataFrame con dati di UN frame
-        title: Titolo del grafico
+  #  Args:
+   #     frame_data: DataFrame con dati di UN frame
+   #     title: Titolo del grafico
     
-    Returns:
-        Figure matplotlib
-    """
+   # Returns:
+   #     Figure matplotlib
+   # """
     fig, ax = plt.subplots(figsize=(10, 6))
     draw_mpl_court(ax)
     
@@ -381,15 +381,15 @@ def generate_static_voronoi(frame_data, title=None):
     return fig
 
 def generate_static_hull(frame_data):
-    """
-    Convex Hull - Disegna forma "involucro" di ogni squadra
+  #  """
+  #  Convex Hull - Disegna forma "involucro" di ogni squadra
+   # 
+   # Convex Hull = poligono minimo che racchiude tutti i giocatori di una squadra.
+   # Utile per visualizzare compattezza/dislocazione tattica
     
-    Convex Hull = poligono minimo che racchiude tutti i giocatori di una squadra.
-    Utile per visualizzare compattezza/dislocazione tattica
-    
-    Returns:
-        Figure matplotlib
-    """
+  #  Returns:
+  #      Figure matplotlib
+  #  """
     fig, ax = plt.subplots(figsize=(10, 6))
     draw_mpl_court(ax)
     
@@ -419,30 +419,30 @@ def generate_static_hull(frame_data):
 # RENDERING VIDEO - Dual View (Frame + Radar)
 # ═══════════════════════════════════════════════════════════════════════════
 def render_dual_view(f_id, df, quality_mode, highlight_id=None, is_possessor=False):
-    """
-    🎬 Rendering frame video + radar tattico
+ #   """
+ #   🎬 Rendering frame video + radar tattico
     
-    Questo è il motore visuale del sistema. Per ogni frame:
-    1. Carica immagine video originale
-    2. Crea radar tattico in METRI
-    3. Disegna giocatori/palla su entrambi
-    4. Se highlight_id specificato, marca quel giocatore
-    5. Controlla possesso palla (visual overlap)
+  #  Questo è il motore visuale del sistema. Per ogni frame:
+  #  1. Carica immagine video originale
+   # 2. Crea radar tattico in METRI
+  #  3. Disegna giocatori/palla su entrambi
+  #  4. Se highlight_id specificato, marca quel giocatore
+   # 5. Controlla possesso palla (visual overlap)
     
-    Quality modes:
-    - "Ottimizzata (HD)": ridimensiona a 1280px (più veloce)
-    - "Massima (4K)": mantiene risoluzione originale (preciso ma lento)
+  #  Quality modes:
+  #  - "Ottimizzata (HD)": ridimensiona a 1280px (più veloce)
+  #  - "Massima (4K)": mantiene risoluzione originale (preciso ma lento)
     
-    Args:
-        f_id: Frame ID numerico
-        df: DataFrame dell'azione
-        quality_mode: "Ottimizzata (HD)" o "Massima (4K)"
-        highlight_id: player_unique_id da evidenziare (es: "Red_5")
-        is_possessor: True se giocatore in highlight possiede palla
+  #  Args:
+   #     f_id: Frame ID numerico
+   #     df: DataFrame dell'azione
+   #     quality_mode: "Ottimizzata (HD)" o "Massima (4K)"
+   #     highlight_id: player_unique_id da evidenziare (es: "Red_5")
+  #      is_possessor: True se giocatore in highlight possiede palla
     
-    Returns:
-        (video_RGB, radar_RGB, red_count, white_count, ref_count, is_holding_ball)
-    """
+   # Returns:
+   #     (video_RGB, radar_RGB, red_count, white_count, ref_count, is_holding_ball)
+   # """
     # Trova riga con questo frame_id
     fname_row = df[df['frame_id'] == f_id]
     if fname_row.empty: return None, None, 0, 0, 0, False
@@ -589,14 +589,14 @@ radar_ph = col_side.empty()          # Placeholder radar tattico
 stats_ph = col_side.empty()          # Placeholder statistiche giocatore
 
 def update_ui_elements(fid, dist_tot, dist_off, poss_frames, speed):
-    """
-    🔄 Helper per aggiornare placeholder UI
+  #  """
+   # 🔄 Helper per aggiornare placeholder UI
     
-    Effettua:
-    1. Rendering dual view per il frame
-    2. Aggiorna video, radar, e statistiche
-    3. Mostra icon 🏀 se giocatore possiede palla
-    """
+   # Effettua:
+   # 1. Rendering dual view per il frame
+   # 2. Aggiorna video, radar, e statistiche
+   # 3. Mostra icon 🏀 se giocatore possiede palla
+   # """
     is_owner = False
     try:
         if fid in ownership_table.index and ownership_table.loc[fid]['player_unique_id'] == selected_player:
@@ -627,14 +627,6 @@ def update_ui_elements(fid, dist_tot, dist_off, poss_frames, speed):
 # ═════════════════════════════════════════════════════════════════════════════════════
 
 if analysis_mode == "🕹️ Navigazione (Manuale)":
-    """
-    👤 MODALITÀ MANUALE: Slider per selezionare frame singolo
-    
-    Utile per analizzare situazioni specifiche:
-    - Spostare slider per esplorare azione frame by frame
-    - Visualizzare Voronoi/Convex Hull per quel frame
-    - Esaminare metriche puntuali
-    """
     sel_frame = st.sidebar.slider("Frame:", min_f, max_f, min_f)
     dt, do, spd, pf = calculate_advanced_stats_hybrid(df, selected_player, sel_frame, ownership_table)
     update_ui_elements(sel_frame, dt, do, pf, spd)
@@ -645,31 +637,21 @@ if analysis_mode == "🕹️ Navigazione (Manuale)":
     if c2.button("🛡️ Convex Hull"): c2.pyplot(generate_static_hull(fdata))
 
 else: # AUTO
-    """
-    ▶️ MODALITÀ AUTOMATICA: Riproduzione video con accumulazione metriche
-    
-    Workflow:
-    1. Seleziona range di frame (start → end)
-    2. Imposta FPS di riproduzione (1-60)
-    3. Premi PLAY per simulare video in tempo reale
-    4. Metriche si accumulano frame by frame
-    5. Genera report con statistiche aggregate
-    """
     st.sidebar.markdown("---")
     start, end = st.sidebar.select_slider("Clip:", options=unique_frames, value=(min_f, min(min_f+40, max_f)))
     fps = st.sidebar.slider("FPS:", 1, 60, 25)
     
     if st.sidebar.button("▶️ PLAY", type="primary"):
-        """
-        🎬 Loop di riproduzione video
         
-        Per ogni frame nel range [start, end]:
-        - Accumula distanza totale (cum_m)
-        - Separa distanza Off-Ball (cum_off_m)
-        - Calcola velocità da ultimo buffer di 5 frame
-        - Aggiorna UI in tempo reale
-        - Sincronizza con FPS per smoothness
-        """
+        #🎬 Loop di riproduzione video
+        
+        #Per ogni frame nel range [start, end]:
+        #- Accumula distanza totale (cum_m)
+        #- Separa distanza Off-Ball (cum_off_m)
+        #- Calcola velocità da ultimo buffer di 5 frame
+        #- Aggiorna UI in tempo reale
+        #- Sincronizza con FPS per smoothness
+        
         frames = [f for f in unique_frames if start <= f <= end]
         cum_m = 0                    # Distanza cumulativa totale (m)
         cum_off_m = 0                # Distanza cumulativa Off-Ball (m)
@@ -734,20 +716,20 @@ else: # AUTO
     st.subheader("📈 Report Azione")
     c1, c2, c3 = st.columns(3)
     if c1.button("Genera Metriche"):
-        """
-        REPORT AGGREGATO - Calcola statistiche per TUTTA la clip
         
-        Analisi:
-        1. SPACING: Distanza media tra giocatori (per team)
-        2. MOVIMENTO: Distanza per giocatore (On/Off-Ball)
-        3. POSSESSO: Tempo di possesso per giocatore
-        4. VELOCITÀ: Media km/h per giocatore
+        #REPORT AGGREGATO - Calcola statistiche per TUTTA la clip
         
-        Output:
-        - Grafici linea (spacing nel tempo)
-        - Grafici barre (workload per giocatore)
-        - Confronti Red vs White
-        """
+        #Analisi:
+        #1. SPACING: Distanza media tra giocatori (per team)
+        #2. MOVIMENTO: Distanza per giocatore (On/Off-Ball)
+        #3. POSSESSO: Tempo di possesso per giocatore
+        #4. VELOCITÀ: Media km/h per giocatore
+        
+        #Output:
+        #- Grafici linea (spacing nel tempo)
+        #- Grafici barre (workload per giocatore)
+        #- Confronti Red vs White
+        
         with st.spinner("Calcolo..."):
             # Filtra dati nel range start-end
             sub = df[(df['frame_id']>=start) & (df['frame_id']<=end)]
@@ -757,11 +739,11 @@ else: # AUTO
             # ─────────────────────────────────────────────────────────────────
             # 1️⃣  SPACING: Distanza media intra-team per frame
             # ─────────────────────────────────────────────────────────────────
-            """
-            Per ogni frame e team, calcola tutte le distanze pairwise tra giocatori
-            Formula: media di ||P_i - P_j|| per i<j in team
-            Converti in METRI
-            """
+            #
+            #Per ogni frame e team, calcola tutte le distanze pairwise tra giocatori
+            #Formula: media di ||P_i - P_j|| per i<j in team
+            #Converti in METRI
+            #*
             spac = []
             for f, g in players.groupby('frame_id'):
                 for t in ['Red', 'White']:
@@ -788,12 +770,12 @@ else: # AUTO
             # ─────────────────────────────────────────────────────────────────
             # 2️⃣  MOVIMENTO: Distanze per giocatore (On/Off Ball)
             # ─────────────────────────────────────────────────────────────────
-            """
-            Per ogni giocatore:
-            - Calcola distanza TOTALE
-            - Separa con/senza palla
-            - Stima velocità media
-            """
+            #
+            #Per ogni giocatore:
+            #- Calcola distanza TOTALE
+            #- Separa con/senza palla
+            #- Stima velocità media
+            #
             moves = []
             speed_poss = []
             own_sub = ownership_table[ownership_table.index.isin(sub['frame_id'].unique())]
@@ -830,21 +812,21 @@ else: # AUTO
                 speed_poss.append({'Player':pid, 'Team':g['team'].iloc[0], 'Speed':avg_spd, 'Poss':poss_s})
             
             if moves:
-                """
-                ─────────────────────────────────────────────────────────────────
-                3️⃣  VISUALIZZAZIONE REPORT
-                ─────────────────────────────────────────────────────────────────
+                #
+                #─────────────────────────────────────────────────────────────────
+                #3️⃣  VISUALIZZAZIONE REPORT
+                #─────────────────────────────────────────────────────────────────
                 
-                Crea DataFrames con risultati aggregati:
-                - mdf: Movimento per giocatore (On/Off)
-                - spdf: Possesso e Velocità
+                #Crea DataFrames con risultati aggregati:
+                #- mdf: Movimento per giocatore (On/Off)
+                #- spdf: Possesso e Velocità
                 
-                Calcola medie per team e crea 4 grafici:
-                1. Spacing nel tempo
-                2. Workload (distanza totale vs off-ball)
-                3. Possesso (tempo in secondi)
-                4. Velocità media (km/h)
-                """
+                #Calcola medie per team e crea 4 grafici:
+                #1. Spacing nel tempo
+                #2. Workload (distanza totale vs off-ball)
+                #3. Possesso (tempo in secondi)
+                #4. Velocità media (km/h)
+                #
                 mdf = pd.DataFrame(moves)
                 spdf = pd.DataFrame(speed_poss)
                 
@@ -897,18 +879,18 @@ else: # AUTO
                 c3.pyplot(fig4)
 
     if c2.button("GIF Voronoi"):
-        """
-        GENERATORE GIF VORONOI
+        #"""
+        #GENERATORE GIF VORONOI
         
-        Pipeline:
-        1. Estrai lista frame nel range [start, end]
-        2. Per ogni frame, genera un grafico Voronoi
-        3. Salva ogni frame come PNG temporaneo
-        4. Assembla tutti i PNG in una GIF animata
-        5. Pulisci file temporanei
+        #Pipeline:
+        #1. Estrai lista frame nel range [start, end]
+        #2. Per ogni frame, genera un grafico Voronoi
+        #3. Salva ogni frame come PNG temporaneo
+        #4. Assembla tutti i PNG in una GIF animata
+        #5. Pulisci file temporanei
         
-        Utile per visualizzare come cambia il "possesso spazio" nel tempo
-        """
+        #Utile per visualizzare come cambia il "possesso spazio" nel tempo
+        #"""
         # 1️⃣  Recupera la lista dei frame da processare
         frames_list = df[(df['frame_id'] >= start) & (df['frame_id'] <= end)]['frame_filename'].unique()
         
@@ -971,17 +953,17 @@ else: # AUTO
                     shutil.rmtree(temp_dir)
 
     if c3.button("Heatmap Azione"):
-        """
-        HEATMAP - Densità di movimento per team
+        #"""
+        #HEATMAP - Densità di movimento per team
         
-        Visualizza quale area del campo viene più frequentemente occupata
-        da ogni squadra nel range di frame selezionato.
+        #Visualizza quale area del campo viene più frequentemente occupata
+        #da ogni squadra nel range di frame selezionato.
         
-        Usa KDE (Kernel Density Estimation) sui dati di posizione in METRI.
-        Output:
-        - Red: Gradiente rosso (intenso = area molto frequentata)
-        - White: Gradiente blu (intenso = area molto frequentata)
-        """
+        #Usa KDE (Kernel Density Estimation) sui dati di posizione in METRI.
+        #Output:
+       # - Red: Gradiente rosso (intenso = area molto frequentata)
+        #- White: Gradiente blu (intenso = area molto frequentata)
+        #"""
         sub = df[(df['frame_id']>=start) & (df['frame_id']<=end)]
         colors_map = {'Red':'Reds', 'White':'Blues'}  # Colormaps Seaborn
         
