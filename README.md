@@ -41,7 +41,8 @@
 
 ```
 CourtSense/
-├── app.py                    # ✅ Main app (con commenti completi)
+├── app_local.py              # ✅ Main local app (con commenti completi)
+├── app.py                    # ✅ Main web app
 ├── json_to_csv.py            # Convertitore COCO JSON → CSV
 ├── .gitignore                # Configurazione Git
 ├── README.md                 # Questo file
@@ -131,7 +132,7 @@ Questo crea `tracking_data.csv` con tutte le posizioni (frame-by-frame).
 
 ### 3. Avvia Streamlit
 ```bash
-streamlit run app.py
+streamlit run app_local.py
 ```
 
 Apri browser → `http://localhost:8501`
@@ -180,7 +181,7 @@ Apri browser → `http://localhost:8501`
 
 ## 🔧 Configurazione
 
-Modifica `app.py` sezione CONFIGURAZIONE:
+Modifica `app_local.py` sezione CONFIGURAZIONE:
 
 ```python
 # Campo reale (metri)
@@ -209,7 +210,7 @@ python json_to_csv.py
 
 ### Immagini non caricate
 - Verifica path in CSV (`image_path` colonna)
-- Prova: `IMAGES_FOLDER = '.'` in `app.py`
+- Prova: `IMAGES_FOLDER = '.'` in `app_local.py`
 
 ### Performance lenta
 - Usa qualità "Ottimizzata (HD)" invece di "Massima (4K)"
@@ -230,7 +231,8 @@ python json_to_csv.py
 | `venv/` | Ambiente virtuale locale |
 
 **Include nel repo:**
-- ✅ `app.py` (main app)
+- ✅ `app_local.py` (main local app)
+- ✅ `app.py` (main web app)
 - ✅ `json_to_csv.py` (script conversione)
 - ✅ `.gitignore` (questo file)
 - ✅ `README.md` (documentazione)
@@ -243,7 +245,7 @@ python json_to_csv.py
 ```bash
 # 1. Init repository
 git init
-git add .gitignore README.md app.py json_to_csv.py requirements.txt
+git add .gitignore README.md app_local.py json_to_csv.py requirements.txt
 git commit -m "Initial commit: CourtSense Tactical Dashboard"
 
 # 2. Aggiungi remote
@@ -252,7 +254,7 @@ git branch -M main
 git push -u origin main
 
 # 3. Future updates
-git add app.py
+git add app_local.py
 git commit -m "Add feature: X"
 git push
 ```
