@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import os
 import re
+import time
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.spatial import Voronoi, ConvexHull
@@ -11,10 +12,12 @@ from matplotlib.patches import Polygon, Rectangle, Circle
 from itertools import combinations
 import imageio.v2 as imageio
 import shutil
+import tempfile
 
 # --- CONFIGURAZIONE ---
 CSV_FILE = 'tracking_data.csv'
 IMAGES_FOLDER = 'datasets' 
+# Dimensioni Logiche Radar
 RADAR_HEIGHT = 300
 COURT_WIDTH = 3840 
 COURT_HEIGHT = 2160
@@ -29,9 +32,6 @@ MAX_PIXEL_STEP = 100
 SMOOTHING_WINDOW = 5
 MIN_SPEED_THRESHOLD = 3.0
 
-# Risoluzione per l'anteprima LIVE (leggera per non bloccare il browser)
-LIVE_PREVIEW_WIDTH = 800 
-
 # --- FUNZIONI UTILI ---
 def extract_frame_number(filename):
     match = re.search(r'frame_(\d+)', str(filename))
@@ -41,14 +41,17 @@ def extract_frame_number(filename):
 def draw_radar_court(img, width, height, color=(200, 200, 200)):
     thick = 2
     ppm = width / REAL_WIDTH_M 
+    
     cv2.line(img, (int(width/2), 0), (int(width/2), height), color, thick)
     cv2.circle(img, (int(width/2), int(height/2)), int(1.8 * ppm), color, thick)
+    
     paint_w = int(5.8 * ppm); paint_h = int(4.9 * ppm)
     y_top = int((height - paint_h) / 2); y_bot = int((height + paint_h) / 2)
     cv2.rectangle(img, (0, y_top), (paint_w, y_bot), color, thick)
     cv2.circle(img, (paint_w, int(height/2)), int(1.8 * ppm), color, thick)
     cv2.rectangle(img, (width - paint_w, y_top), (width, y_bot), color, thick)
     cv2.circle(img, (width - paint_w, int(height/2)), int(1.8 * ppm), color, thick)
+    
     three_pt = int(6.75 * ppm)
     cv2.ellipse(img, (0, int(height/2)), (int(width*0.35), int(height*0.8)), 0, -90, 90, color, thick)
     cv2.ellipse(img, (width, int(height/2)), (int(width*0.35), int(height*0.8)), 0, 90, 270, color, thick)
@@ -70,6 +73,7 @@ def load_data():
         df['action_id'] = df['frame_filename'].apply(lambda x: x.split('_frame')[0] if '_frame' in x else 'unknown')
     df['frame_id'] = df['frame_filename'].apply(extract_frame_number)
     df['player_unique_id'] = df['team'] + "_" + df['number'].astype(str)
+    
     if 'x_meters' not in df.columns:
         df['x_meters'] = df['x_feet'] * PX_TO_M
         df['y_meters'] = df['y_feet'] * (REAL_HEIGHT_M / COURT_HEIGHT) 
@@ -94,10 +98,11 @@ def get_possession_table(df_subset):
     p_cx = candidates['bbox_x'] + candidates['bbox_w']/2
     p_cy = candidates['bbox_y'] + candidates['bbox_h']/2
     candidates['dist_px'] = np.sqrt((p_cx - bx_c)**2 + (p_cy - by_c)**2)
+    
     best_idx = candidates.groupby('frame_id')['dist_px'].idxmin()
     return candidates.loc[best_idx, ['frame_id', 'player_unique_id']].set_index('frame_id')
 
-# --- CALCOLO STATISTICHE IBRIDE ---
+# --- STATISTICHE IBRIDE ---
 def calculate_advanced_stats_hybrid(df_action, player_id, current_frame, ownership_table):
     p_data = df_action[(df_action['player_unique_id'] == player_id) & (df_action['frame_id'] <= current_frame)].sort_values('frame_id')
     if len(p_data) < 5: return 0, 0, 0, 0
@@ -111,32 +116,30 @@ def calculate_advanced_stats_hybrid(df_action, player_id, current_frame, ownersh
     
     speed_kmh = 0.0
     if len(p_data) > 15:
-        dist_last_15_px = step_px.tail(15).sum()
-        time_s = 15 / FPS
-        speed_kmh = (dist_last_15_px * PX_TO_M / time_s) * 3.6
+        dist_15 = step_px.tail(15).sum() * PX_TO_M
+        speed_kmh = (dist_15 / (15/FPS)) * 3.6
         if speed_kmh < MIN_SPEED_THRESHOLD: speed_kmh = 0.0
 
     p_data = p_data.join(ownership_table, on='frame_id', rsuffix='_owner')
     p_data['is_mine'] = (p_data['player_unique_id_owner'] == player_id)
-    is_mine_buf = p_data['is_mine'].rolling(window=3, center=True, min_periods=1).sum() >= 2
-    off_ball_px = step_px[~is_mine_buf].sum()
-    off_ball_m = off_ball_px * PX_TO_M
+    is_mine_buf = p_data['is_mine'].rolling(3, center=True).sum() >= 2
+    off_ball_m = step_px[~is_mine_buf].sum() * PX_TO_M
     poss_frames = is_mine_buf.sum()
     
     return int(total_dist_m), int(off_ball_m), round(speed_kmh, 1), poss_frames
 
-# --- RENDERING VIDEO (QUALITY SWITCH) ---
-def render_dual_view(f_id, df, quality_mode, highlight_id=None, is_possessor=False):
+# --- RENDERING NBA STYLE (OVERLAY) ---
+def render_nba_style(f_id, df, target_width, highlight_id=None, is_possessor=False, stats=None):
     fname_row = df[df['frame_id'] == f_id]
-    if fname_row.empty: return None, None, 0, 0, 0, False
+    if fname_row.empty: return None
     fname = fname_row['frame_filename'].iloc[0]
     
+    # Path Logic
     img_path = None
     if 'image_path' in fname_row.columns:
         p = fname_row['image_path'].iloc[0]
         if os.path.exists(p): img_path = p
         elif os.path.exists(p.replace('\\', '/')): img_path = p.replace('\\', '/')
-        
     if img_path is None: 
         if 'action_id' in fname_row.columns:
             act = fname_row['action_id'].iloc[0]
@@ -150,64 +153,122 @@ def render_dual_view(f_id, df, quality_mode, highlight_id=None, is_possessor=Fal
         frame_img_orig = np.zeros((720, 1280, 3), dtype=np.uint8)
         cv2.putText(frame_img_orig, "IMG NOT FOUND", (50, 360), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
 
-    # --- QUALITY LOGIC ---
-    # Se "Massima (4K)" -> Usa risoluzione originale (3840px o simile)
-    # Se "Ottimizzata (HD)" o per streaming live -> Usa 800px
-    if quality_mode == "Massima (4K)":
-        # Nessun resize, usa originale
-        frame_img = frame_img_orig
-        scale = 1.0
-    else:
-        # Resize per fluidità (HD o meno)
-        target_w = 1280 if quality_mode == "Ottimizzata (HD)" else LIVE_PREVIEW_WIDTH
-        scale = target_w / frame_img_orig.shape[1]
-        frame_img = cv2.resize(frame_img_orig, (0, 0), fx=scale, fy=scale)
+    # 1. Resize Video
+    scale = target_width / frame_img_orig.shape[1]
+    frame_img = cv2.resize(frame_img_orig, (0, 0), fx=scale, fy=scale)
+    H, W = frame_img.shape[:2]
     
-    radar_img = np.zeros((RADAR_HEIGHT, 600, 3), dtype=np.uint8)
-    draw_radar_court(radar_img, 600, RADAR_HEIGHT)
+    # 2. Genera Radar
+    radar_base = np.zeros((RADAR_HEIGHT, 600, 3), dtype=np.uint8)
+    draw_radar_court(radar_base, 600, RADAR_HEIGHT)
     
     frame_data = df[df['frame_id'] == f_id]
     sx, sy = 600 / REAL_WIDTH_M, RADAR_HEIGHT / REAL_HEIGHT_M
-    red_c, white_c, ref_c = 0, 0, 0
-    ball_row = frame_data[frame_data['team'] == 'Ball']
-
+    
     for _, row in frame_data.iterrows():
         xm = row['x_feet'] * PX_TO_M; ym = row['y_feet'] * (REAL_HEIGHT_M / COURT_HEIGHT)
         rx = int(xm * sx); ry = int(ym * sy)
         rx = max(0, min(rx, 600-1)); ry = max(0, min(ry, RADAR_HEIGHT-1))
         
-        t_str = str(row['team']); raw_c = str(row.get('raw_class', '')).lower()
+        t = str(row['team'])
+        col = (200,200,200)
+        if t=='Red': col=(0,0,255)
+        elif t=='White': col=(255,255,255)
+        elif t=='Ball': col=(0,165,255)
         
-        if t_str == 'Ball':
-            cv2.circle(radar_img, (rx, ry), 8, (0, 165, 255), -1)
-        elif 'Ref' in t_str or 'ref' in raw_c:
-            cv2.circle(radar_img, (rx, ry), 5, (0, 255, 0), -1); ref_c += 1
-        elif t_str in ['Red', 'White']:
-            c = (0, 0, 255) if t_str == 'Red' else (255, 255, 255)
-            if t_str == 'Red': c = (0, 0, 255)
-            cv2.circle(radar_img, (rx, ry), 6, c, -1)
-            
-            if highlight_id and row['player_unique_id'] == highlight_id:
-                bx, by = int(row['bbox_x']*scale), int(row['bbox_y']*scale)
-                bw, bh = int(row['bbox_w']*scale), int(row['bbox_h']*scale)
-                col_box = (0, 165, 255) if is_possessor else (0, 255, 255)
-                cv2.rectangle(frame_img, (bx, by), (bx+bw, by+bh), col_box, 3)
-                cv2.putText(frame_img, row['player_unique_id'], (bx, by-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, col_box, 2)
-                cv2.circle(radar_img, (rx, ry), 12, col_box, 2)
+        rad = 5 if t!='Ball' else 7
+        cv2.circle(radar_base, (rx, ry), rad, col, -1)
+        
+        if row['player_unique_id'] == highlight_id:
+            bx = int(row['bbox_x']*scale); by = int(row['bbox_y']*scale)
+            bw = int(row['bbox_w']*scale); bh = int(row['bbox_h']*scale)
+            col_box = (0, 165, 255) if is_possessor else (0, 255, 255)
+            cv2.rectangle(frame_img, (bx, by), (bx+bw, by+bh), col_box, 2)
+            cv2.circle(radar_base, (rx, ry), 10, col_box, 2)
 
-    return cv2.cvtColor(frame_img, cv2.COLOR_BGR2RGB), cv2.cvtColor(radar_img, cv2.COLOR_BGR2RGB), 0, 0, 0, is_possessor
+    # 3. OVERLAY RADAR (Basso Destra)
+    mini_w = int(W * 0.25)
+    mini_h = int(mini_w * (RADAR_HEIGHT/600))
+    radar_mini = cv2.resize(radar_base, (mini_w, mini_h))
+    
+    margin = 20
+    y1 = H - mini_h - margin; y2 = H - margin
+    x1 = W - mini_w - margin; x2 = W - margin
+    
+    if y1 > 0 and x1 > 0:
+        roi = frame_img[y1:y2, x1:x2]
+        blended = cv2.addWeighted(roi, 0.3, radar_mini, 0.7, 0)
+        frame_img[y1:y2, x1:x2] = blended
+        cv2.rectangle(frame_img, (x1, y1), (x2, y2), (255,255,255), 1)
+
+    # 4. STATS BOX (Alto Sinistra)
+    if stats:
+        dist, off, spd, poss = stats
+        cv2.rectangle(frame_img, (20, 20), (300, 130), (0,0,0), -1)
+        
+        head_col = (0, 255, 255)
+        txt_col = (255, 255, 255)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        
+        icon = " (BALL)" if is_possessor else ""
+        cv2.putText(frame_img, f"{highlight_id}{icon}", (30, 50), font, 0.6, head_col, 2)
+        cv2.putText(frame_img, f"DIST: {dist} m", (30, 75), font, 0.5, txt_col, 1)
+        cv2.putText(frame_img, f"SPEED: {spd} km/h", (30, 95), font, 0.5, txt_col, 1)
+        cv2.putText(frame_img, f"POSS: {poss:.1f} s", (30, 115), font, 0.5, txt_col, 1)
+
+    return cv2.cvtColor(frame_img, cv2.COLOR_BGR2RGB)
+
+# --- GRAFICI STATICI ---
+def generate_static_voronoi(frame_data, title=None):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    draw_mpl_court(ax)
+    players = frame_data[frame_data['team'].isin(['Red', 'White'])]
+    if len(players) >= 4:
+        points = players[['x_feet', 'y_feet']].values
+        teams = players['team'].values
+        dummy = np.array([[-200, -200], [4000, -200], [4000, 2400], [-200, 2400]])
+        try:
+            vor = Voronoi(np.vstack([points, dummy]))
+            for i in range(len(points)):
+                region = vor.regions[vor.point_region[i]]
+                if -1 not in region and len(region) > 0:
+                    c = 'red' if players.iloc[i]['team'] == 'Red' else 'blue'
+                    ax.add_patch(Polygon(vor.vertices[region], facecolor=c, alpha=0.4, edgecolor='white'))
+        except: pass
+    for _, r in players.iterrows():
+        c = 'red' if r['team']=='Red' else 'blue'
+        ax.scatter(r['x_feet'], r['y_feet'], c=c, s=80, edgecolors='white', zorder=5)
+    ax.set_xlim(0, COURT_WIDTH); ax.set_ylim(COURT_HEIGHT, 0); ax.axis('off')
+    if title: ax.set_title(title, fontsize=15)
+    return fig
+
+def generate_static_hull(frame_data):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    draw_mpl_court(ax)
+    colors = {'Red': 'red', 'White': 'blue'}; fill = {'Red': 'salmon', 'White': 'lightblue'}
+    for team in ['Red', 'White']:
+        points = frame_data[frame_data['team'] == team][['x_feet', 'y_feet']].values
+        ax.scatter(points[:,0], points[:,1], c=colors[team], s=80, zorder=5)
+        if len(points) >= 3:
+            try:
+                hull = ConvexHull(points)
+                poly = Polygon(points[hull.vertices], facecolor=fill[team], edgecolor=colors[team], alpha=0.3, lw=2, linestyle='--')
+                ax.add_patch(poly)
+            except: pass
+    ax.set_xlim(0, COURT_WIDTH); ax.set_ylim(COURT_HEIGHT, 0); ax.axis('off')
+    return fig
 
 # --- MAIN ---
 st.set_page_config(page_title="CourtSense", layout="wide")
-st.title("🏀 CourtSense: Tactical Dashboard")
+st.title("🏀 CourtSense: Broadcast Analytics")
 
 df_full = load_data()
 if df_full is None: st.error("CSV non trovato."); st.stop()
 
-st.sidebar.header("⚙️ Configurazione")
+st.sidebar.header("Configurazione")
 available_actions = sorted(df_full['action_id'].unique())
 idx = available_actions.index('out13') if 'out13' in available_actions else 0
-selected_action = st.sidebar.selectbox("📂 Azione:", available_actions, index=idx)
+selected_action = st.sidebar.selectbox("Azione:", available_actions, index=idx)
 
 df = df_full[df_full['action_id'] == selected_action].copy().sort_values('frame_id')
 ownership_table = get_possession_table(df)
@@ -216,46 +277,12 @@ unique_frames = df['frame_id'].unique()
 min_f, max_f = int(min(unique_frames)), int(max(unique_frames))
 player_list = sorted([p for p in df['player_unique_id'].unique() if "Ball" not in p and "Ref" not in p])
 
-analysis_mode = st.sidebar.radio("Modalità:", ("🕹️ Navigazione (Manuale)", "▶️ Genera Video (Auto)"))
-quality_mode = st.sidebar.radio("Qualità:", ("Ottimizzata (HD)", "Massima (4K)"))
-st.sidebar.markdown("---")
-selected_player = st.sidebar.selectbox("Traccia Giocatore:", player_list)
+analysis_mode = st.sidebar.radio("Modalità:", ("Navigazione", "Genera Video"))
+selected_player = st.sidebar.selectbox("Giocatore:", player_list)
 
-col_main, col_side = st.columns([3, 1])
-video_ph = col_main.empty(); radar_ph = col_side.empty(); stats_ph = col_side.empty()
+preview_ph = st.empty()
 
-def update_ui_elements(fid, dist_tot, dist_off, poss_frames, speed):
-    is_owner = False
-    try:
-        if fid in ownership_table.index and ownership_table.loc[fid]['player_unique_id'] == selected_player: is_owner = True
-    except: pass
-    
-    # In LIVE preview usiamo qualità bassa per fluidità
-    vid, rad, rc, wc, ref, hold = render_dual_view(fid, df, "Ottimizzata (HD)", selected_player, is_owner)
-    
-    if vid is not None:
-        # Compressione JPEG per Live Preview
-        success, buffer = cv2.imencode(".jpg", vid, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
-        if success:
-            video_ph.image(buffer.tobytes(), channels="RGB", width='stretch')
-        else:
-            video_ph.image(vid, channels="RGB", width='stretch')
-        
-        radar_ph.image(rad, channels="RGB", caption="Tactical Board (Meters)", width='stretch')
-        icon = "🏀" if is_owner else ""
-        stats_ph.markdown(f"""
-        ### Frame: {fid}
-        **Focus:** `{selected_player}` {icon}
-        📏 **Dist:** {int(dist_tot)} m
-        🏃 **Off-Ball:** {int(dist_off)} m
-        ⚡ **Speed:** {speed} km/h
-        ⏱️ **Poss:** {(poss_frames/FPS):.1f} s
-        ---
-        🔴 R:{rc} | ⚪ W:{wc}
-        """)
-    return hold
-
-if analysis_mode == "🕹️ Navigazione (Manuale)":
+if analysis_mode == "Navigazione":
     sel_frame = st.sidebar.slider("Frame:", min_f, max_f, min_f)
     dt, do, spd, pf = calculate_advanced_stats_hybrid(df, selected_player, sel_frame, ownership_table)
     
@@ -264,210 +291,130 @@ if analysis_mode == "🕹️ Navigazione (Manuale)":
         if sel_frame in ownership_table.index and ownership_table.loc[sel_frame]['player_unique_id'] == selected_player: is_owner = True
     except: pass
     
-    # In manuale rispettiamo la qualità scelta dall'utente (anche 4K)
-    vid, rad, _, _, _, hold = render_dual_view(sel_frame, df, quality_mode, selected_player, is_owner)
-    
-    if vid is not None:
-        video_ph.image(vid, channels="RGB", width='stretch')
-        radar_ph.image(rad, channels="RGB", caption="Tactical Board", width='stretch')
-        icon = "🏀" if is_owner else ""
-        stats_ph.markdown(f"### Frame {sel_frame}\n**Player:** `{selected_player}` {icon}\n📏 **Dist:** {dt}m\n⚡ **Speed:** {spd} km/h")
-    
-    # Grafici Statici (opzionali per manuale)
+    # Preview (light)
+    img = render_nba_style(sel_frame, df, 800, selected_player, is_owner, (dt, do, spd, pf/FPS))
+    if img is not None:
+        preview_ph.image(img, channels="RGB", use_container_width=True)
 
-else: # AUTO (GENERAZIONE VIDEO)
-    st.info(f"ℹ️ Generazione Video (Quality: {quality_mode}). Attendere prego...")
-    start, end = st.sidebar.select_slider("Clip:", options=unique_frames, value=(min_f, min(min_f+40, max_f)))
+    st.markdown("---"); c1, c2 = st.columns(2)
+    fdata = df[df['frame_id'] == sel_frame]
+    if c1.button("📸 Voronoi"): c1.pyplot(generate_static_voronoi(fdata))
+    if c2.button("🛡️ Convex Hull"): c2.pyplot(generate_static_hull(fdata))
+
+else: # GENERAZIONE VIDEO
+    st.info("Genera un video MP4 fluido in alta definizione (1280p).")
+    start, end = st.sidebar.select_slider("Clip Range:", options=unique_frames, value=(min_f, min(min_f+40, max_f)))
     
-    if st.sidebar.button("🎥 GENERA VIDEO ANALISI"):
+    if st.sidebar.button("🎥 GENERA VIDEO"):
         frames = [f for f in unique_frames if start <= f <= end]
-        output_file = "analysis_output.mp4"
+        output_file = "analysis_broadcast.mp4"
         prog_bar = st.progress(0, "Rendering...")
         
-        cum_m = 0; pos_buffer = []
+        cum_m = 0; cum_off = 0; pos_buf = []; poss_c = 0
         video_frames = []
         
         for i, f_id in enumerate(frames):
-            prog_bar.progress(int(i / len(frames) * 100))
+            prog_bar.progress(int(i/len(frames)*100))
             
-            # Calcoli
             curr = df[(df['frame_id']==f_id) & (df['player_unique_id']==selected_player)]
             spd = 0.0
             if not curr.empty:
                 cx, cy = curr.iloc[0]['x_feet'], curr.iloc[0]['y_feet']
-                pos_buffer.append((cx, cy))
-                if len(pos_buffer)>15: pos_buffer.pop(0)
-                if len(pos_buffer)>=2:
-                    step = np.sqrt((cx-pos_buffer[-2][0])**2 + (cy-pos_buffer[-2][1])**2)
-                    if step < MAX_PIXEL_STEP: cum_m += step * PX_TO_M
-                if len(pos_buffer)>=10:
-                     d = np.sqrt((pos_buffer[-1][0]-pos_buffer[0][0])**2 + (pos_buffer[-1][1]-pos_buffer[0][1])**2)
-                     spd = (d * PX_TO_M / ((len(pos_buffer)-1)/FPS)) * 3.6
+                pos_buf.append((cx, cy)); 
+                if len(pos_buf)>15: pos_buf.pop(0)
+                if len(pos_buf)>=2:
+                    step = np.sqrt((cx-pos_buf[-2][0])**2 + (cy-pos_buf[-2][1])**2)
+                    if step < MAX_PIXEL_STEP: 
+                        cum_m += step * PX_TO_M
+                if len(pos_buf)>=10:
+                     d = np.sqrt((pos_buf[-1][0]-pos_buf[0][0])**2 + (pos_buf[-1][1]-pos_buf[0][1])**2)
+                     raw_spd = (d * PX_TO_M / ((len(pos_buf)-1)/FPS)) * 3.6
+                     if raw_spd > MIN_SPEED_THRESHOLD: spd = min(raw_spd, 32.0)
 
             is_owner = False
             try:
                 if f_id in ownership_table.index and ownership_table.loc[f_id]['player_unique_id'] == selected_player: is_owner = True
             except: pass
             
-            # Render HQ per il video finale (rispetta la scelta Quality)
-            vid, rad, _, _, _, _ = render_dual_view(f_id, df, quality_mode, selected_player, is_owner)
+            if is_owner: poss_c += 1
+            else: cum_off += (step if 'step' in locals() else 0) * PX_TO_M
             
-            if vid is not None:
-                # Layout Video Finale
-                h, w, _ = vid.shape
-                rad_res = cv2.resize(rad, (int(rad.shape[1] * (h / rad.shape[0])), h))
-                combined = np.hstack((vid, rad_res))
-                
-                # Overlay
-                icon = " (BALL)" if is_owner else ""
-                text = f"Ply: {selected_player}{icon} | Dist: {int(cum_m)}m | Spd: {spd:.1f} km/h"
-                cv2.rectangle(combined, (0, 0), (w, 60), (0,0,0), -1)
-                cv2.putText(combined, text, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
-                
-                video_frames.append(combined)
-
-        prog_bar.progress(90, "Salvataggio MP4...")
+            # Render HD
+            img = render_nba_style(f_id, df, 1280, selected_player, is_owner, (int(cum_m), int(cum_off), round(spd, 1), poss_c/FPS))
+            if img is not None: video_frames.append(img)
+            
+        prog_bar.progress(95, "Salvataggio MP4...")
         imageio.mimwrite(output_file, video_frames, fps=30, macro_block_size=1)
-        
         prog_bar.empty()
-        st.success("Video Generato!")
+        st.success("Video Pronto!")
         st.video(output_file)
 
-    st.markdown("---"); st.subheader("📈 Report Azione")
+    st.markdown("---"); st.subheader("📈 Report")
     if st.button("Genera Metriche"):
-        with st.spinner("Calcolo Analisi Completa..."):
-            # Filtra i dati nel range selezionato
-            sub = df[(df['frame_id'] >= start) & (df['frame_id'] <= end)]
+        with st.spinner("Calcolo..."):
+            sub = df[(df['frame_id']>=start) & (df['frame_id']<=end)]
             players = sub[sub['team'].isin(['Red', 'White'])]
-            ball_sub = sub[sub['team'] == 'Ball']
             duration_s = (end - start + 1) / FPS
             
-            # --- 1. SPACING CHART ---
             spac = []
             for f, g in players.groupby('frame_id'):
                 for t in ['Red', 'White']:
-                    tg = g[g['team'] == t]
-                    if len(tg) >= 2:
-                        # Distanza media tra compagni (in pixel) convertita in metri
-                        dists_px = [np.linalg.norm(a-b) for a,b in combinations(tg[['x_feet','y_feet']].values, 2)]
-                        dists_m = [d * PX_TO_M for d in dists_px]
-                        spac.append({'f': f, 't': t, 'v': np.mean(dists_m)})
-            
+                    tg = g[g['team']==t]
+                    if len(tg)>=2:
+                        d = [np.linalg.norm(a-b) for a,b in combinations(tg[['x_feet','y_feet']].values, 2)]
+                        spac.append({'f':f, 't':t, 'v':np.mean(d)*PX_TO_M})
             if spac:
                 sdf = pd.DataFrame(spac)
-                fig1, ax1 = plt.subplots(figsize=(6, 4))
-                sns.lineplot(data=sdf, x='f', y='v', hue='t', palette={'Red':'red','White':'blue'}, ax=ax1)
-                
-                # Linee Medie
-                mr = sdf[sdf['t']=='Red']['v'].mean()
-                mw = sdf[sdf['t']=='White']['v'].mean()
-                ax1.axhline(mr, c='darkred', ls='--', label=f"Avg R: {mr:.1f}m")
-                ax1.axhline(mw, c='darkblue', ls='--', label=f"Avg W: {mw:.1f}m")
-                
-                ax1.set_title("Avg Team Spacing (Meters)")
-                ax1.set_xlabel("Frame")
-                ax1.set_ylabel("Meters")
-                ax1.legend(fontsize='small')
-                ax1.grid(True, alpha=0.3)
-                
-                # Visualizza Grafico 1
-                c1, c2 = st.columns(2)
-                c1.pyplot(fig1)
+                fig, ax = plt.subplots(figsize=(6, 4))
+                sns.lineplot(data=sdf, x='f', y='v', hue='t', palette={'Red':'red','White':'blue'}, ax=ax)
+                ax.set_title("Avg Spacing (Meters)"); preview_ph.pyplot(fig) # Use preview ph
 
-            # --- 2. WORKLOAD, SPEED & POSSESSION ---
-            moves = []
-            speed_poss_data = []
-            
-            # Pre-calcolo possesso per il range selezionato
+            moves = []; speed_poss = []
             own_sub = ownership_table[ownership_table.index.isin(sub['frame_id'].unique())]
-            
             for pid, g in players.groupby('player_unique_id'):
                 g = g.sort_values('frame_id')
+                steps = np.sqrt(np.diff(g['x_feet'], prepend=g['x_feet'].iloc[0])**2 + np.diff(g['y_feet'], prepend=g['y_feet'].iloc[0])**2)
+                steps = np.where(steps > MAX_PIXEL_STEP, 0, steps)
+                spd = (steps * FPS * PX_TO_M) * 3.6
+                steps[spd < MIN_SPEED_THRESHOLD] = 0
+                steps_m = steps * PX_TO_M
                 
-                # Calcolo Distanza (Pixel -> Metri)
-                # Smoothing per il report
-                g['xm'] = g['x_feet'].rolling(window=SMOOTHING_WINDOW, min_periods=1).mean()
-                g['ym'] = g['y_feet'].rolling(window=SMOOTHING_WINDOW, min_periods=1).mean()
+                is_p = g['frame_id'].isin(own_sub[own_sub['player_unique_id'] == pid].index).values
+                tot = np.nansum(steps_m); off = np.nansum(steps_m[~is_p])
+                poss_s = is_p.sum()/FPS; avg_spd = (tot/duration_s)*3.6
                 
-                steps_px = np.sqrt(np.diff(g['xm'], prepend=g['xm'].iloc[0])**2 + np.diff(g['ym'], prepend=g['ym'].iloc[0])**2)
-                
-                # Filtro fisico (Pixel)
-                steps_px = np.where(steps_px > MAX_PIXEL_STEP, 0, steps_px)
-                
-                # Noise Gate su velocità istantanea stimata
-                # Se in questo frame la velocità era < 3 km/h, azzera lo step
-                inst_speed = (steps_px * FPS * PX_TO_M) * 3.6
-                steps_px[inst_speed < MIN_SPEED_THRESHOLD] = 0
-                
-                steps_m = steps_px * PX_TO_M
-                
-                # Possesso
-                is_poss = g['frame_id'].isin(own_sub[own_sub['player_unique_id'] == pid].index).values
-                
-                tot_m = np.sum(steps_m)
-                off_m = np.sum(steps_m[~is_poss])
-                poss_s = is_poss.sum() / FPS
-                avg_spd = (tot_m / duration_s) * 3.6 if duration_s > 0 else 0
-                
-                moves.append({'Player': pid, 'Dist': tot_m, 'Type': 'Total', 'Team': g['team'].iloc[0]})
-                moves.append({'Player': pid, 'Dist': off_m, 'Type': 'Off-Ball', 'Team': g['team'].iloc[0]})
-                
-                speed_poss_data.append({'Player': pid, 'Team': g['team'].iloc[0], 'Speed': avg_spd, 'Poss': poss_s})
+                moves.append({'Player':pid, 'Dist':tot, 'Type':'Total', 'Team':g['team'].iloc[0]})
+                moves.append({'Player':pid, 'Dist':off, 'Type':'Off-Ball', 'Team':g['team'].iloc[0]})
+                speed_poss.append({'Player':pid, 'Team':g['team'].iloc[0], 'Speed':avg_spd, 'Poss':poss_s})
             
-            if moves:
-                mdf = pd.DataFrame(moves)
-                sp_df = pd.DataFrame(speed_poss_data)
-                
-                # KPI Calculation
-                atr = mdf[(mdf['Team']=='Red') & (mdf['Type']=='Total')]['Dist'].mean()
-                aro = mdf[(mdf['Team']=='Red') & (mdf['Type']=='Off-Ball')]['Dist'].mean()
-                awt = mdf[(mdf['Team']=='White') & (mdf['Type']=='Total')]['Dist'].mean()
-                awo = mdf[(mdf['Team']=='White') & (mdf['Type']=='Off-Ball')]['Dist'].mean()
-                
-                asr = sp_df[sp_df['Team']=='Red']['Speed'].mean()
-                apr = sp_df[sp_df['Team']=='Red']['Poss'].mean()
-                asw = sp_df[sp_df['Team']=='White']['Speed'].mean()
-                apw = sp_df[sp_df['Team']=='White']['Poss'].mean()
-                
-                # KPI Display
-                st.markdown("### 📊 Team Averages")
-                k1, k2 = st.columns(2)
-                k1.info(f"🔴 **Red:**\n- Dist: {atr:.1f}m\n- Off-Ball: {aro:.1f}m\n- Speed: {asr:.1f} km/h\n- Poss: {apr:.1f}s")
-                k2.info(f"⚪ **White:**\n- Dist: {awt:.1f}m\n- Off-Ball: {awo:.1f}m\n- Speed: {asw:.1f} km/h\n- Poss: {apw:.1f}s")
-                
-                # Grafico Workload (c2 del blocco Spacing o nuova riga)
-                fig2, ax2 = plt.subplots(figsize=(6, 5))
-                sns.barplot(data=mdf, x='Player', y='Dist', hue='Type', palette={'Total':'gray', 'Off-Ball':'limegreen'}, ax=ax2)
-                # Linee medie
-                ax2.axhline(atr, c='darkred', ls='--', lw=1); ax2.axhline(aro, c='red', ls=':', lw=1.5)
-                ax2.axhline(awt, c='darkblue', ls='--', lw=1); ax2.axhline(awo, c='blue', ls=':', lw=1.5)
-                
-                ax2.tick_params(axis='x', rotation=90)
-                ax2.set_title("Workload (Meters)")
-                ax2.legend(fontsize='x-small')
-                ax2.grid(True, axis='y', alpha=0.3)
-                c2.pyplot(fig2)
-                
-                # Nuova riga per Speed e Possesso
-                r2c1, r2c2 = st.columns(2)
-                
-                # Grafico Possesso
-                fig3, ax3 = plt.subplots(figsize=(6, 4))
-                sns.barplot(data=sp_df, x='Player', y='Poss', hue='Team', palette={'Red':'red', 'White':'blue'}, ax=ax3)
-                ax3.tick_params(axis='x', rotation=90)
-                ax3.set_title("Possession Time (s)")
-                ax3.grid(True, axis='y', alpha=0.3)
-                r2c1.pyplot(fig3)
-                
-                # Grafico Velocità
-                fig4, ax4 = plt.subplots(figsize=(6, 4))
-                sns.barplot(data=sp_df, x='Player', y='Speed', hue='Team', palette={'Red':'red', 'White':'blue'}, ax=ax4)
-                # Linee medie speed
-                ax4.axhline(asr, c='darkred', ls='--', label='Avg R')
-                ax4.axhline(asw, c='darkblue', ls='--', label='Avg W')
-                
-                ax4.tick_params(axis='x', rotation=90)
-                ax4.set_title("Avg Speed (km/h)")
-                ax4.grid(True, axis='y', alpha=0.3)
-                ax4.legend(fontsize='small')
-                r2c2.pyplot(fig4)
+            mdf = pd.DataFrame(moves); spdf = pd.DataFrame(speed_poss)
+            
+            c1, c2 = st.columns(2)
+            fig, ax = plt.subplots(); sns.barplot(data=mdf, x='Player', y='Dist', hue='Type', ax=ax); ax.tick_params(axis='x', rotation=90); c1.pyplot(fig)
+            fig2, ax2 = plt.subplots(); sns.barplot(data=spdf, x='Player', y='Speed', hue='Team', ax=ax2); ax2.tick_params(axis='x', rotation=90); c2.pyplot(fig2)
+            
+            # --- GIF VORONOI ---
+            st.markdown("### GIF Voronoi")
+            frames_list = sub['frame_filename'].unique()
+            if len(frames_list) > 0:
+                bar = st.progress(0, "Rendering GIF..."); tmp="tmp_v"; os.makedirs(tmp, exist_ok=True); files=[]
+                try:
+                    for i, fn in enumerate(frames_list):
+                        bar.progress(int((i/len(frames_list))*90))
+                        fig = generate_static_voronoi(df[df['frame_filename']==fn], title=f"Frame {extract_frame_number(fn)}")
+                        p = os.path.join(tmp, f"{i:03d}.png"); fig.savefig(p, dpi=50); plt.close(fig); files.append(p)
+                    with imageio.get_writer("action_voronoi.gif", mode='I', duration=0.15) as w:
+                        for f in files: w.append_data(imageio.imread(f))
+                    bar.empty(); st.image("action_voronoi.gif")
+                except Exception as e: st.error(str(e))
+                finally: shutil.rmtree(tmp)
+            
+            # --- HEATMAP ---
+            st.markdown("### Heatmap")
+            colors_map = {'Red':'Reds', 'White':'Blues'}
+            for t in ['Red', 'White']:
+                st_t = sub[sub['team']==t]
+                if not st_t.empty:
+                    fig, ax = plt.subplots(figsize=(5,3)); draw_mpl_court(ax)
+                    sns.kdeplot(x=st_t['x_feet'], y=st_t['y_feet'], fill=True, cmap=colors_map.get(t, 'Greys'), alpha=0.6, ax=ax)
+                    ax.set_xlim(0, COURT_WIDTH); ax.set_ylim(COURT_HEIGHT, 0); ax.axis('off'); st.pyplot(fig)
