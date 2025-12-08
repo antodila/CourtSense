@@ -33,7 +33,7 @@ POSSESSION_THRESHOLD = 60             # Tolleranza in pixel per rilevare possess
 # PARAMETRI FISICI - Conversione Pixel ↔ Metri
 # ─────────────────────────────────────────────────────────────────────────
 FPS = 30.0                            # Frame rate video (frame al secondo)
-REAL_WIDTH_M = 28.0                   # Larghezza reale campo (metri) - es: basket/calcio
+REAL_WIDTH_M = 28.0                   # Larghezza reale campo (metri) - 
 REAL_HEIGHT_M = 15.0                  # Altezza reale campo (metri)
 
 # 🔧 FATTORE DI CONVERSIONE CRITICO
@@ -61,7 +61,7 @@ def extract_frame_number(filename):
 
 def draw_radar_court(img, width, height, color=(200, 200, 200)):
     """
-    🎨 Disegna campo di basket/calcio su immagine OpenCV (in PIXEL)
+    🎨 Disegna campo di basket su immagine OpenCV (in PIXEL)
     ├─ Linea centrale verticale
     ├─ Cerchio centro (R=1.8m)
     ├─ Rettangoli vernice (pitture) per ciascun lato

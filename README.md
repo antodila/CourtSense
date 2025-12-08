@@ -2,7 +2,7 @@
 
 ## Panoramica
 
-**CourtSense** è un'applicazione **Streamlit** per l'analisi tattica e il tracking di sport su campo (basket, calcio, etc.). Utilizza video e dati di tracking per generare metriche avanzate come:
+**CourtSense** è un'applicazione **Streamlit** per l'analisi tattica e il tracking del basket. Utilizza video e dati di tracking per generare metriche avanzate come:
 
 - 📏 **Distanza percorsa** (totale + off-ball in metri)
 - ⚡ **Velocità media** (km/h)
@@ -184,8 +184,8 @@ Modifica `app.py` sezione CONFIGURAZIONE:
 
 ```python
 # Campo reale (metri)
-REAL_WIDTH_M = 28.0    # Basket: 28m, Calcio: 105m
-REAL_HEIGHT_M = 15.0   # Basket: 15m, Calcio: 68m
+REAL_WIDTH_M = 28.0    # Basket: 28m
+REAL_HEIGHT_M = 15.0   # Basket: 15m
 
 # Video (pixel)
 COURT_WIDTH = 3840     # 4K width

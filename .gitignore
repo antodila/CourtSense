@@ -22,7 +22,6 @@ __pycache__/
 
 # GIF e video generati
 *.gif
-action_voronoi.gif
 
 # 🔒 PYTHON & ENVIRONMENT
 
