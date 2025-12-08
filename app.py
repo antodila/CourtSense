@@ -184,26 +184,41 @@ def generate_static_hull(frame_data):
     ax.set_xlim(0, COURT_WIDTH); ax.set_ylim(COURT_HEIGHT, 0); ax.axis('off')
     return fig
 
+# --- RENDERING VIDEO ---
 def render_dual_view(f_id, df, quality_mode, highlight_id=None, is_possessor=False):
     fname_row = df[df['frame_id'] == f_id]
     if fname_row.empty: return None, None, 0, 0, 0, False
     fname = fname_row['frame_filename'].iloc[0]
     
-    # Path Logic (Invariata)
-    img_path = None
+    # PATH RESOLUTION ROBUSTA
+    possible_paths = []
     if 'image_path' in fname_row.columns:
-        p = fname_row['image_path'].iloc[0]
-        if os.path.exists(p): img_path = p
-    if img_path is None: img_path = os.path.join(IMAGES_FOLDER, fname)
-    if not os.path.exists(img_path): img_path = os.path.join('train', fname)
+        raw_p = fname_row['image_path'].iloc[0]
+        possible_paths.append(raw_p)
+        possible_paths.append(raw_p.replace('\\', '/'))
+        possible_paths.append(raw_p.replace('/', '\\'))
         
-    frame_img_orig = cv2.imread(img_path)
+    if 'action_id' in fname_row.columns:
+        act = fname_row['action_id'].iloc[0]
+        possible_paths.append(os.path.join('datasets', act, 'train', fname))
+        
+    possible_paths.append(os.path.join(IMAGES_FOLDER, fname))
+    possible_paths.append(os.path.join('train', fname))
+    
+    frame_img_orig = None
+    for p in possible_paths:
+        if os.path.exists(p):
+            frame_img_orig = cv2.imread(p)
+            if frame_img_orig is not None: break
+            
     if frame_img_orig is None: 
-        frame_img_orig = np.zeros((720, 1280, 3), dtype=np.uint8) # Placeholder nero
+        # Placeholder
+        h, w = 720, 1280
+        frame_img_orig = np.zeros((h, w, 3), dtype=np.uint8)
+        cv2.putText(frame_img_orig, "IMG NOT FOUND", (50, 360), cv2.FONT_HERSHEY_SIMPLEX, 2, (0,0,255), 3)
 
-    # RESIZE AGGRESSIVO PER CLOUD (Max 640px in playback)
-    # Se quality_mode è "Massima", usiamo 4K, altrimenti 640px per fluidità totale
-    target_w = 3840 if quality_mode == "Massima (4K)" else 640 
+    # RESIZE CLOUD
+    target_w = 3840 if quality_mode == "Massima (4K)" else STREAMING_WIDTH
     scale = target_w / frame_img_orig.shape[1]
     frame_img = cv2.resize(frame_img_orig, (0, 0), fx=scale, fy=scale)
     
@@ -243,7 +258,7 @@ def render_dual_view(f_id, df, quality_mode, highlight_id=None, is_possessor=Fal
                 cv2.putText(frame_img, row['player_unique_id'], (bx, by-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, col_box, 2)
                 cv2.circle(radar_img, (rx, ry), 12, col_box, 2)
 
-    return cv2.cvtColor(frame_img, cv2.COLOR_BGR2RGB), cv2.cvtColor(radar_img, cv2.COLOR_BGR2RGB), red_c, white_c, ref_c, is_holding_ball
+    return cv2.cvtColor(frame_img, cv2.COLOR_BGR2RGB), cv2.cvtColor(radar_img, cv2.COLOR_BGR2RGB), red_c, white_c, ref_c, is_possessor
 
 # --- MAIN ---
 st.set_page_config(page_title="CourtSense Dashboard", layout="wide")
