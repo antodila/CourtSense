@@ -9,7 +9,7 @@ import seaborn as sns
 from scipy.spatial import Voronoi, ConvexHull
 from matplotlib.patches import Polygon, Rectangle, Circle
 from itertools import combinations
-import imageio # Libreria standard
+import imageio
 import shutil
 from scipy.signal import savgol_filter
 
@@ -158,19 +158,15 @@ def generate_static_voronoi(frame_data, title=None):
     if title: ax.set_title(title)
     return fig
 
-# --- FUNZIONE MANCANTE AGGIUNTA QUI ---
 def generate_static_hull(frame_data):
     fig, ax = plt.subplots(figsize=(10, 6)); draw_mpl_court(ax)
-    colors = {'Red': 'red', 'White': 'blue'}
-    fill = {'Red': 'salmon', 'White': 'lightblue'}
-    for team in ['Red', 'White']:
+    for team, col in [('Red','red'), ('White','blue')]:
         points = frame_data[frame_data['team'] == team][['x_meters', 'y_meters']].values
-        ax.scatter(points[:,0], points[:,1], c=colors[team], s=80, zorder=5)
+        ax.scatter(points[:,0], points[:,1], c=col, s=80)
         if len(points) >= 3:
             try:
                 hull = ConvexHull(points)
-                poly = Polygon(points[hull.vertices], facecolor=fill[team], edgecolor=colors[team], alpha=0.3, lw=2, linestyle='--')
-                ax.add_patch(poly)
+                ax.add_patch(Polygon(points[hull.vertices], facecolor=col, alpha=0.3))
             except: pass
     ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off')
     return fig
@@ -253,11 +249,11 @@ def render_nba_style(f_id, df, target_width, highlight_id=None, is_possessor=Fal
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(frame_img, f"{highlight_id}{' (BALL)' if is_possessor else ''}", (30, 50), font, 0.6, (0,255,255), 2)
         
-        d_str = f"{dist} m"
-        s_str = f"{spd}" 
+        d_str = f"{dist} m" if isinstance(dist, (int, float)) else str(dist)
+        #s_str = f"{spd}" 
         
         cv2.putText(frame_img, f"DIST: {d_str}", (30, 75), font, 0.5, (255,255,255), 1)
-        cv2.putText(frame_img, f"SPEED: {s_str}", (30, 95), font, 0.5, (255,255,255), 1)
+        #cv2.putText(frame_img, f"SPEED: {s_str}", (30, 95), font, 0.5, (255,255,255), 1)
         cv2.putText(frame_img, f"POSS: {poss}", (30, 115), font, 0.5, (255,255,255), 1)
 
     return cv2.cvtColor(frame_img, cv2.COLOR_BGR2RGB)
@@ -302,7 +298,7 @@ if mode == "🕹️ Navigazione (Manuale)":
     
     # Render statico per preview veloce
     img = render_nba_style(f, df, 800, sel_player, is_own, ("-", "-", "-", "-"))
-    if img is not None: preview_ph.image(img, channels="RGB", width="stretch")
+    if img is not None: preview_ph.image(img, channels="RGB", use_container_width=True)
     
     c1, c2 = st.columns(2)
     frm_data = df[df['frame_id']==f]
@@ -331,6 +327,7 @@ else:
             step_val = 0
             
             if not curr.empty:
+                # Coordinate METRICHE
                 cx, cy = curr.iloc[0]['x_meters'], curr.iloc[0]['y_meters']
                 curr_pos_arr = np.array([cx, cy])
                 
@@ -340,6 +337,7 @@ else:
                 frame_counter += 1
                 if frame_counter % MACRO_INTERVAL == 0:
                     dist_segment = np.linalg.norm(curr_pos_arr - last_macro_pos)
+                    # Filtro fermo (10cm in 0.2s)
                     if dist_segment > 0.10:
                         cum_m += dist_segment
                         step_val = dist_segment 
@@ -355,8 +353,8 @@ else:
             else: 
                 if step_val > 0: cum_off += step_val
             
-            # Render con "-" sulla velocità (come richiesto)
-            img = render_nba_style(f, df, 1280, sel_player, is_own, (int(cum_m), int(cum_off), "-", f"{(poss_c/PHYSICS_FPS):.1f}s"))
+            # Render con "-" sulla velocità
+            img = render_nba_style(f, df, 1280, sel_player, is_own, (int(cum_m), int(cum_off), "-", f"{(poss_c/FPS):.1f}s"))
             if img is not None: video_frames.append(img)
             
         prog_bar.progress(95, "Compilazione MP4...")
@@ -390,7 +388,7 @@ else:
                 sns.lineplot(data=sdf, x='f', y='v', hue='t', palette={'Red':'red','White':'blue'}, ax=ax1)
                 mr = sdf[sdf['t']=='Red']['v'].mean(); mw = sdf[sdf['t']=='White']['v'].mean()
                 ax1.axhline(mr, c='darkred', ls='--', label=f"R:{mr:.1f}m"); ax1.axhline(mw, c='darkblue', ls='--', label=f"W:{mw:.1f}m")
-                ax1.set_title("Avg Team Spacing (Meters)"); ax1.legend(); st.pyplot(fig1)
+                ax1.set_title("Avg Team Spacing (Meters)", fontweight='bold'); ax1.legend(); st.pyplot(fig1)
 
             # 2. Stats (Macro Step Logic)
             moves = []; speed_poss_data = []
@@ -398,19 +396,35 @@ else:
             
             for pid, g in players.groupby('player_unique_id'):
                 g = g.sort_values('frame_id')
-                g_sampled = g.iloc[::SAMPLE_RATE] 
                 
-                if len(g_sampled) < 2: tot_m = 0
-                else:
-                    xm = g_sampled['x_meters']; ym = g_sampled['y_meters']
-                    macro_steps = np.sqrt(xm.diff()**2 + ym.diff()**2).fillna(0)
-                    macro_steps[macro_steps < 0.10] = 0 
-                    tot_m = np.sum(macro_steps)
+                # --- SAVITZKY-GOLAY FILTER ---
+                try:
+                    xm = savgol_filter(g['x_meters'], 15, 2)
+                    ym = savgol_filter(g['y_meters'], 15, 2)
+                except:
+                    xm = g['x_meters'].values
+                    ym = g['y_meters'].values
                 
+                # Differenze
+                dx = np.diff(xm, prepend=xm[0])
+                dy = np.diff(ym, prepend=ym[0])
+                dists = np.sqrt(dx**2 + dy**2)
+                
+                # Noise Gate
+                dists[dists < 0.02] = 0
+                
+                # Max Speed
+                dists[dists > 0.8] = 0.8
+                
+                tot_m = np.sum(dists)
+                
+                # Velocità media (m/s)
                 avg_spd_ms = (tot_m / duration_s) if duration_s > 0 else 0
                 
+                # Possesso (Tempo)
                 is_poss = g['frame_id'].isin(own_sub[own_sub['player_unique_id'] == pid].index).values
                 poss_s = is_poss.sum() / PHYSICS_FPS
+                
                 poss_ratio = poss_s / duration_s if duration_s > 0 else 0
                 off_m = tot_m * (1.0 - poss_ratio)
                 
@@ -435,17 +449,12 @@ else:
                 c1, c2 = st.columns(2)
                 fig2, ax2 = plt.subplots(figsize=(6, 5))
                 sns.barplot(data=mdf, x='Player', y='Dist', hue='Type', palette={'Total':'gray', 'Off-Ball':'limegreen'}, ax=ax2)
-                ax2.tick_params(axis='x', rotation=90); ax2.set_title("Workload (m)"); c1.pyplot(fig2)
+                ax2.tick_params(axis='x', rotation=90); ax2.set_title("Workload (m)", fontweight='bold'); c1.pyplot(fig2)
                 
-                fig3, ax3 = plt.subplots(figsize=(6, 5))
-                sns.barplot(data=spdf, x='Player', y='Poss', hue='Team', palette={'Red':'red', 'White':'blue'}, ax=ax3)
-                ax3.tick_params(axis='x', rotation=90); ax3.set_title("Possession (s)"); c2.pyplot(fig3)
-                
-                st.markdown("##### Velocity Analysis")
-                fig4, ax4 = plt.subplots(figsize=(10, 4))
+                fig4, ax4 = plt.subplots(figsize=(6, 5))
                 sns.barplot(data=spdf, x='Player', y='Speed', hue='Team', palette={'Red':'red', 'White':'blue'}, ax=ax4)
                 ax4.axhline(asr, c='darkred', ls='--'); ax4.axhline(asw, c='darkblue', ls='--')
-                ax4.tick_params(axis='x', rotation=90); ax4.set_title("Avg Speed (m/s)"); st.pyplot(fig4)
+                ax4.tick_params(axis='x', rotation=90); ax4.set_title("Avg Speed (m/s)", fontweight='bold'); c2.pyplot(fig4)
 
             # GIF
             st.markdown("### 🌀 GIF Voronoi")
@@ -459,7 +468,7 @@ else:
                         p = os.path.join(tmp, f"{i:03d}.png"); fig.savefig(p, dpi=60, bbox_inches='tight'); plt.close(fig); files.append(p)
                     with imageio.get_writer("action_voronoi.gif", mode='I', duration=0.15, loop=0) as w:
                         for f in files: w.append_data(imageio.imread(f))
-                    bar.empty(); st.image("action_voronoi.gif", width="stretch")
+                    bar.empty(); st.image("action_voronoi.gif", use_container_width=True)
                 except Exception as e: st.error(str(e))
                 finally: shutil.rmtree(tmp)
             
@@ -470,9 +479,9 @@ else:
             if not st_red.empty:
                 fig, ax = plt.subplots(figsize=(5,3)); draw_mpl_court(ax)
                 sns.kdeplot(x=st_red['x_meters'], y=st_red['y_meters'], fill=True, cmap='Reds', alpha=0.6, ax=ax)
-                ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off'); h1.pyplot(fig)
+                ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off'); ax.set_title("Red Heatmap", fontweight='bold'); h1.pyplot(fig)
             st_white = sub[sub['team']=='White']
             if not st_white.empty:
                 fig, ax = plt.subplots(figsize=(5,3)); draw_mpl_court(ax)
                 sns.kdeplot(x=st_white['x_meters'], y=st_white['y_meters'], fill=True, cmap='Blues', alpha=0.6, ax=ax)
-                ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off'); h2.pyplot(fig)
+                ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off'); ax.set_title("White Heatmap", fontweight='bold'); h2.pyplot(fig)
