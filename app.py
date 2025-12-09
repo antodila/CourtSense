@@ -459,15 +459,25 @@ else:
                 - ⏱️ Poss: **{apw:.1f} s**
                 """)
                 
-                c1, c2 = st.columns(2)
+                col_g1, col_g2 = st.columns(2)
+                
                 fig2, ax2 = plt.subplots(figsize=(6, 5))
                 sns.barplot(data=mdf, x='Player', y='Dist', hue='Type', palette={'Total':'gray', 'Off-Ball':'limegreen'}, ax=ax2)
-                ax2.tick_params(axis='x', rotation=90); ax2.set_title("Workload (m)", fontweight='bold'); c1.pyplot(fig2)
+                ax2.axhline(atr, c='darkred', ls='--', label="Avg R"); ax2.axhline(awt, c='darkblue', ls='--', label="Avg W")
+                ax2.tick_params(axis='x', rotation=90); ax2.set_title("Workload (Meters)", fontweight='bold'); ax2.legend(fontsize='x-small')
+                col_g1.pyplot(fig2)
                 
-                fig4, ax4 = plt.subplots(figsize=(6, 5))
+                fig3, ax3 = plt.subplots(figsize=(6, 5))
+                sns.barplot(data=spdf, x='Player', y='Poss', hue='Team', palette={'Red':'red', 'White':'blue'}, ax=ax3)
+                ax3.tick_params(axis='x', rotation=90); ax3.set_title("Possession Time (s)", fontweight='bold')
+                col_g2.pyplot(fig3)
+                
+                st.markdown("##### Velocity Analysis")
+                fig4, ax4 = plt.subplots(figsize=(10, 4))
                 sns.barplot(data=spdf, x='Player', y='Speed', hue='Team', palette={'Red':'red', 'White':'blue'}, ax=ax4)
-                ax4.axhline(asr, c='darkred', ls='--'); ax4.axhline(asw, c='darkblue', ls='--')
-                ax4.tick_params(axis='x', rotation=90); ax4.set_title("Avg Speed (m/s)", fontweight='bold'); c2.pyplot(fig4)
+                ax4.axhline(asr, c='darkred', ls='--', label=f"Avg R ({asr:.2f} m/s)"); ax4.axhline(asw, c='darkblue', ls='--', label=f"Avg W ({asw:.2f} m/s)")
+                ax4.tick_params(axis='x', rotation=90); ax4.set_title("Average Speed (m/s)", fontweight='bold'); ax4.legend()
+                st.pyplot(fig4)
 
             # GIF
             st.markdown("### 🌀 GIF Voronoi")
