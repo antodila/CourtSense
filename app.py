@@ -298,7 +298,7 @@ if mode == "🕹️ Navigazione (Manuale)":
     
     # Render statico per preview veloce
     img = render_nba_style(f, df, 800, sel_player, is_own, ("-", "-", "-", "-"))
-    if img is not None: preview_ph.image(img, channels="RGB", use_container_width=True)
+    if img is not None: preview_ph.image(img, channels="RGB", width="stretch")
     
     c1, c2 = st.columns(2)
     frm_data = df[df['frame_id']==f]
@@ -468,7 +468,7 @@ else:
                         p = os.path.join(tmp, f"{i:03d}.png"); fig.savefig(p, dpi=60, bbox_inches='tight'); plt.close(fig); files.append(p)
                     with imageio.get_writer("action_voronoi.gif", mode='I', duration=0.15, loop=0) as w:
                         for f in files: w.append_data(imageio.imread(f))
-                    bar.empty(); st.image("action_voronoi.gif", use_container_width=True)
+                    bar.empty(); st.image("action_voronoi.gif", width="stretch")
                 except Exception as e: st.error(str(e))
                 finally: shutil.rmtree(tmp)
             
