@@ -439,12 +439,25 @@ else:
                 aro = mdf[(mdf['Team']=='Red') & (mdf['Type']=='Off-Ball')]['Dist'].mean()
                 awt = mdf[(mdf['Team']=='White') & (mdf['Type']=='Total')]['Dist'].mean()
                 awo = mdf[(mdf['Team']=='White') & (mdf['Type']=='Off-Ball')]['Dist'].mean()
-                asr = spdf[spdf['Team']=='Red']['Speed'].mean(); apr = spdf[spdf['Team']=='Red']['Poss'].mean()
-                asw = spdf[spdf['Team']=='White']['Speed'].mean(); apw = spdf[spdf['Team']=='White']['Poss'].mean()
+                
+                asr = spdf[spdf['Team']=='Red']['Speed'].mean()
+                apr = spdf[spdf['Team']=='Red']['Poss'].mean()
+                asw = spdf[spdf['Team']=='White']['Speed'].mean()
+                apw = spdf[spdf['Team']=='White']['Poss'].mean()
                 
                 k1, k2 = st.columns(2)
-                k1.info(f"🔴 **Red Avg:**\n- Dist: **{atr:.1f}m**\n- Spd: **{asr:.2f} m/s**\n- Poss: {apr:.1f}s")
-                k2.info(f"⚪ **White Avg:**\n- Dist: **{awt:.1f}m**\n- Spd: **{asw:.2f} m/s**\n- Poss: {apw:.1f}s")
+                k1.info(f"""
+                🔴 **Red Team Avg**
+                - 📏 Dist: **{atr:.1f} m** (Off: {aro:.1f}m)
+                - ⚡ Speed: **{asr:.2f} m/s**
+                - ⏱️ Poss: **{apr:.1f} s**
+                """)
+                k2.info(f"""
+                ⚪ **White Team Avg**
+                - 📏 Dist: **{awt:.1f} m** (Off: {awo:.1f}m)
+                - ⚡ Speed: **{asw:.2f} m/s**
+                - ⏱️ Poss: **{apw:.1f} s**
+                """)
                 
                 c1, c2 = st.columns(2)
                 fig2, ax2 = plt.subplots(figsize=(6, 5))
