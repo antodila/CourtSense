@@ -126,7 +126,7 @@ def calculate_advanced_stats_hybrid(df_action, player_id, current_frame, ownersh
     
     return int(total_dist_m), int(off_ball_m), round(speed_kmh, 1), poss_frames
 
-# --- FUNZIONI GRAFICHE MANCANTI (REINSERITE) ---
+# --- FUNZIONI GRAFICHE ---
 def generate_static_voronoi(frame_data, title=None):
     fig, ax = plt.subplots(figsize=(10, 6))
     draw_mpl_court(ax)
