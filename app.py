@@ -9,7 +9,7 @@ import seaborn as sns
 from scipy.spatial import Voronoi, ConvexHull
 from matplotlib.patches import Polygon, Rectangle, Circle
 from itertools import combinations
-import imageio
+import imageio.v2 as imageio
 import shutil
 from scipy.signal import savgol_filter
 
