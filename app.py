@@ -24,13 +24,13 @@ COURT_HEIGHT = 2160
 POSSESSION_THRESHOLD = 60 
 
 # --- FISICA ---
-FPS = 30.0
+FPS = 12.0
 REAL_WIDTH_M = 28.0
 REAL_HEIGHT_M = 15.0
 PX_TO_M = REAL_WIDTH_M / COURT_WIDTH 
 
-# PHYSICS_FPS: Campionamento a 15 Hz per correggere l'effetto "doppia velocità"
-PHYSICS_FPS = 15.0 
+# PHYSICS_FPS: Frame scattati a 12 FPS
+PHYSICS_FPS = 12.0 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. CONFIGURAZIONE OMOGRAFIA

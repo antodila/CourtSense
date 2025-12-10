@@ -35,9 +35,8 @@ POSSESSION_THRESHOLD = 60
 PLAYBACK_FPS = 30.0 
 
 # PHYSICS_FPS: A quale frequenza campioniamo la realtà fisica.
-# Impostato a 15.0 per correggere l'effetto "Doppia Velocità".
-# Questo DIMEZZA le velocità calcolate e rende i tempi realistici.
-PHYSICS_FPS = 15.0 
+# Impostato a 12.0 FPS per allinearsi ai frame effettivi acquisiti.
+PHYSICS_FPS = 12.0 
 
 REAL_WIDTH_M = 28.0
 REAL_HEIGHT_M = 15.0
