@@ -302,44 +302,69 @@ def render_nba_style(f_id, df, target_width, highlight_id=None, is_possessor=Fal
     frame_data = df[df['frame_id'] == f_id]
     sx, sy = 600 / REAL_WIDTH_M, RADAR_HEIGHT / REAL_HEIGHT_M
     
-    red_c=0; white_c=0
+    # --- LOGICA PALLA "SNAP-TO-PLAYER" ---
     ball_row = frame_data[frame_data['team'] == 'Ball']
-    is_holding_ball = False
-
+    player_positions = {} # Salva posizioni per controllo snap
+    
+    # 1. Disegna Giocatori e Bounding Box
     for _, row in frame_data.iterrows():
+        t = str(row['team'])
+        if t == 'Ball': continue # Salta palla nel primo giro
+
         rx = int(row['x_meters'] * sx); ry = int(row['y_meters'] * sy)
         rx = max(0, min(rx, 600-1)); ry = max(0, min(ry, RADAR_HEIGHT-1))
-        t = str(row['team'])
+        
+        player_positions[row['player_unique_id']] = (rx, ry, row['bbox_x'], row['bbox_y'], row['bbox_w'], row['bbox_h'])
         
         col = (200,200,200)
-        if t=='Red': col=(0,0,255); red_c+=1
-        elif t=='White': col=(255,255,255); white_c+=1
-        elif t=='Ball': col=(0,165,255)
+        if t=='Red': col=(0,0,255)
+        elif t=='White': col=(255,255,255)
         
-        rad = 5 if t!='Ball' else 7
-        cv2.circle(radar_base, (rx, ry), rad, col, -1)
+        cv2.circle(radar_base, (rx, ry), 5, col, -1)
         
         if row['player_unique_id'] == highlight_id:
             bx = int(row['bbox_x']*scale); by = int(row['bbox_y']*scale)
             bw = int(row['bbox_w']*scale); bh = int(row['bbox_h']*scale)
             col_box = (0, 165, 255) if is_possessor else (0, 255, 255)
             cv2.rectangle(frame_img, (bx, by), (bx+bw, by+bh), col_box, 3)
-            cv2.circle(radar_base, (rx, ry), 10, col_box, 2)
-            
-            if not ball_row.empty:
-                b = ball_row.iloc[0]
-                bcx, bcy = b['bbox_x']+b['bbox_w']/2, b['bbox_y']+b['bbox_h']/2
-                mw, mh = row['bbox_w']*0.05, row['bbox_h']*0.10
-                if (row['bbox_x']+mw < bcx < row['bbox_x']+row['bbox_w']-mw) and \
-                   (row['bbox_y'] < bcy < row['bbox_y']+row['bbox_h']-mh):
-                    is_holding_ball = True
+            cv2.circle(radar_base, (rx, ry), 9, col_box, 2)
 
+    # 2. Disegna Palla (Snap o Proiezione)
+    if not ball_row.empty:
+        b = ball_row.iloc[0]
+        # Check possesso visivo
+        owner_id = None
+        bx_c, by_c = b['bbox_x']+b['bbox_w']/2, b['bbox_y']+b['bbox_h']/2
+        
+        for pid, vals in player_positions.items():
+            prx, pry, pbx, pby, pbw, pbh = vals
+            # Logica Box-in-Box semplificata
+            mw, mh = pbw*0.05, pbh*0.10
+            if (pbx+mw < bx_c < pbx+pbw-mw) and (pby < by_c < pby+pbh-mh):
+                owner_id = pid
+                break
+        
+        if owner_id:
+            # SNAP: Usa posizione giocatore sul radar (+ piccolo offset)
+            prx, pry = player_positions[owner_id][:2]
+            final_bx, final_by = prx + 3, pry + 3
+        else:
+            # VOLO: Usa proiezione omografica
+            final_bx = int(b['x_meters'] * sx)
+            final_by = int(b['y_meters'] * sy)
+            
+        final_bx = max(0, min(final_bx, 600-1))
+        final_by = max(0, min(final_by, RADAR_HEIGHT-1))
+        cv2.circle(radar_base, (final_bx, final_by), 6, (0, 165, 255), -1)
+
+    # Overlay Radar su Frame
     mini_w = int(W * 0.25); mini_h = int(mini_w * (RADAR_HEIGHT/600))
     radar_mini = cv2.resize(radar_base, (mini_w, mini_h))
     y1 = H - mini_h - 20; x1 = W - mini_w - 20
     frame_img[y1:y1+mini_h, x1:x1+mini_w] = cv2.addWeighted(frame_img[y1:y1+mini_h, x1:x1+mini_w], 0.3, radar_mini, 0.7, 0)
     cv2.rectangle(frame_img, (x1, y1), (x1+mini_w, y1+mini_h), (255,255,255), 1)
 
+    # Box Statistiche
     if stats:
         dist, off, spd, poss = stats
         cv2.rectangle(frame_img, (20, 20), (350, 130), (0,0,0), -1)
@@ -347,10 +372,13 @@ def render_nba_style(f_id, df, target_width, highlight_id=None, is_possessor=Fal
         cv2.putText(frame_img, f"{highlight_id}{' (BALL)' if is_possessor else ''}", (30, 50), font, 0.6, (0,255,255), 2)
         
         d_str = f"{dist} m" if isinstance(dist, (int, float)) else str(dist)
-        #s_str = f"{spd}" 
-        
         cv2.putText(frame_img, f"DIST: {d_str}", (30, 75), font, 0.5, (255,255,255), 1)
-        #cv2.putText(frame_img, f"SPEED: {s_str}", (30, 95), font, 0.5, (255,255,255), 1)
+        
+        # Mostra velocità solo se ha un valore numerico valido (no "-" e no 0 fisso inutile)
+        if spd != "-" and spd != 0:
+             s_str = f"{spd} m/s"
+             cv2.putText(frame_img, f"SPEED: {s_str}", (30, 95), font, 0.5, (255,255,255), 1)
+             
         cv2.putText(frame_img, f"POSS: {poss}", (30, 115), font, 0.5, (255,255,255), 1)
 
     return cv2.cvtColor(frame_img, cv2.COLOR_BGR2RGB)
@@ -604,7 +632,7 @@ else:
                         for f in files: w.append_data(imageio.imread(f))
                     
                     bar.empty()
-                    st.image(gif_path, use_container_width=True)
+                    st.image(gif_path, width="stretch")
                     
                 except Exception as e: 
                     st.error(f"Errore GIF: {str(e)}")
