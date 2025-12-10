@@ -31,8 +31,8 @@ COURT_HEIGHT = 2160
 POSSESSION_THRESHOLD = 60 
 
 # --- PARAMETRI CRITICI PER LA FISICA ---
-# PLAYBACK_FPS: A quanto gira il video a schermo (30 per fluidità)
-PLAYBACK_FPS = 30.0 
+# PLAYBACK_FPS: A quanto gira il video a schermo
+PLAYBACK_FPS = 12.0 
 
 # PHYSICS_FPS: A quale frequenza campioniamo la realtà fisica.
 # Impostato a 12.0 FPS per allinearsi ai frame effettivi acquisiti.
