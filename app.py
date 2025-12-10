@@ -636,7 +636,7 @@ else:
                         for f in files: w.append_data(imageio.imread(f))
                     
                     bar.empty()
-                    st.image(gif_path, use_container_width=True)
+                    st.image(gif_path, width="stretch")
                     
                 except Exception as e: 
                     st.error(f"Errore GIF: {str(e)}")
