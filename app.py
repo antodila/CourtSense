@@ -119,19 +119,70 @@ def get_possession_table(df_subset):
 # GRAFICA & RENDERING
 # ═══════════════════════════════════════════════════════════════════════════
 def draw_radar_court(img, width, height, color=(200, 200, 200)):
-    thick = 2; ppm = width / REAL_WIDTH_M 
-    cv2.line(img, (int(width/2), 0), (int(width/2), height), color, thick)
-    cv2.circle(img, (int(width/2), int(height/2)), int(1.8 * ppm), color, thick)
-    paint_w = int(5.8 * ppm); paint_h = int(4.9 * ppm)
-    y_top = int((height - paint_h) / 2); y_bot = int((height + paint_h) / 2)
-    cv2.rectangle(img, (0, y_top), (paint_w, y_bot), color, thick)
-    cv2.rectangle(img, (width - paint_w, y_top), (width, y_bot), color, thick)
+    """
+    Disegna un campo da basket FIBA realistico sul radar.
+    """
+    thick = 2
+    # Scala: pixel per metro
+    ppm_x = width / 28.0
+    ppm_y = height / 15.0
+    
+    # Colore linee
+    c = color
+    
+    # 1. Campo Esterno
+    # (Già disegnato dal bordo immagine o non necessario se nero)
+    
+    # 2. Linea di Metà Campo e Cerchio Centrale
+    mid_x = int(width / 2)
+    mid_y = int(height / 2)
+    cv2.line(img, (mid_x, 0), (mid_x, height), c, thick)
+    cv2.circle(img, (mid_x, mid_y), int(1.8 * ppm_x), c, thick)
+    
+    # 3. Aree (The Paint) - Rettangoli
+    # FIBA: 5.8m x 4.9m
+    paint_w = int(5.8 * ppm_x)
+    paint_h = int(4.9 * ppm_y)
+    paint_top = int((height - paint_h) / 2)
+    paint_bot = int((height + paint_h) / 2)
+    
+    # Sinistra
+    cv2.rectangle(img, (0, paint_top), (paint_w, paint_bot), c, thick)
+    # Lunetta Sinistra (Semicerchio)
+    cv2.ellipse(img, (paint_w, mid_y), (int(1.8*ppm_x), int(1.8*ppm_y)), 0, -90, 90, c, thick)
+    
+    # Destra
+    cv2.rectangle(img, (width - paint_w, paint_top), (width, paint_bot), c, thick)
+    # Lunetta Destra (Semicerchio)
+    cv2.ellipse(img, (width - paint_w, mid_y), (int(1.8*ppm_x), int(1.8*ppm_y)), 0, 90, 270, c, thick)
+    
+    # 4. Linea da 3 Punti (Arco)
+    # FIBA: Raggio 6.75m
+    three_r_x = int(6.75 * ppm_x)
+    three_r_y = int(6.75 * ppm_y)
+    
+    # Centro del canestro (offset di 1.575m dal fondo)
+    hoop_offset = int(1.575 * ppm_x)
+    
+    # Arco Sinistro
+    cv2.ellipse(img, (hoop_offset, mid_y), (three_r_x, three_r_y), 0, -90, 90, c, thick)
+    # Arco Destro
+    cv2.ellipse(img, (width - hoop_offset, mid_y), (three_r_x, three_r_y), 0, 90, 270, c, thick)
+    
+    # 5. Canestri (Cerchietti colorati per orientamento)
+    hoop_col = (0, 165, 255) # Arancione Basket
+    cv2.circle(img, (hoop_offset, mid_y), 4, hoop_col, -1)
+    cv2.circle(img, (width - hoop_offset, mid_y), 4, hoop_col, -1)
+    
     return img
 
 def draw_mpl_court(ax, color='black', lw=2):
     court = Rectangle((0, 0), REAL_WIDTH_M, REAL_HEIGHT_M, linewidth=lw, color=color, fill=False)
     ax.add_patch(court); ax.plot([14, 14], [0, 15], color=color, linewidth=lw)
     ax.add_patch(Circle((14, 7.5), 1.8, color=color, fill=False, linewidth=lw))
+    # Aggiungi aree anche qui per coerenza nei grafici statici
+    ax.add_patch(Rectangle((0, 5.05), 5.8, 4.9, linewidth=lw, color=color, fill=False))
+    ax.add_patch(Rectangle((22.2, 5.05), 5.8, 4.9, linewidth=lw, color=color, fill=False))
 
 def generate_static_voronoi(frame_data, title=None):
     fig, ax = plt.subplots(figsize=(10, 6)); draw_mpl_court(ax)
