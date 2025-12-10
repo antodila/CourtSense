@@ -7,7 +7,7 @@ import re
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.spatial import Voronoi, ConvexHull
-from matplotlib.patches import Polygon, Rectangle, Circle
+from matplotlib.patches import Polygon, Rectangle, Circle, Arc
 from itertools import combinations
 import imageio.v2 as imageio
 import shutil
@@ -177,49 +177,95 @@ def draw_radar_court(img, width, height, color=(200, 200, 200)):
     return img
 
 def draw_mpl_court(ax, color='black', lw=2):
+    """Disegna un campo da basket FIBA su Matplotlib."""
+    # 1. Perimetro e linea centrale
     court = Rectangle((0, 0), REAL_WIDTH_M, REAL_HEIGHT_M, linewidth=lw, color=color, fill=False)
-    ax.add_patch(court); ax.plot([14, 14], [0, 15], color=color, linewidth=lw)
-    ax.add_patch(Circle((14, 7.5), 1.8, color=color, fill=False, linewidth=lw))
-    # Aggiungi aree anche qui per coerenza nei grafici statici
+    ax.add_patch(court)
+    ax.plot([14, 14], [0, 15], color=color, linewidth=lw) # Metà campo
+    ax.add_patch(Circle((14, 7.5), 1.8, color=color, fill=False, linewidth=lw)) # Cerchio centrale
+    
+    # 2. Aree (The Paint) - 5.8m x 4.9m
+    # Sinistra
     ax.add_patch(Rectangle((0, 5.05), 5.8, 4.9, linewidth=lw, color=color, fill=False))
+    # Destra
     ax.add_patch(Rectangle((22.2, 5.05), 5.8, 4.9, linewidth=lw, color=color, fill=False))
+    
+    # 3. Lunette (Free Throw Circles) - Raggio 1.8m
+    # Sinistra (Semicerchio o cerchio tratteggiato)
+    ax.add_patch(Arc((5.8, 7.5), 3.6, 3.6, theta1=-90, theta2=90, color=color, linewidth=lw))
+    # Destra
+    ax.add_patch(Arc((22.2, 7.5), 3.6, 3.6, theta1=90, theta2=270, color=color, linewidth=lw))
+    
+    # 4. Linea da 3 Punti - Raggio 6.75m
+    # Sinistra
+    ax.add_patch(Arc((1.575, 7.5), 13.5, 13.5, theta1=-90, theta2=90, color=color, linewidth=lw))
+    # Destra
+    ax.add_patch(Arc((26.425, 7.5), 13.5, 13.5, theta1=90, theta2=270, color=color, linewidth=lw))
+    
+    # 5. Canestri (Opzionale, piccoli cerchi)
+    ax.add_patch(Circle((1.575, 7.5), 0.2, color='orange', fill=True))
+    ax.add_patch(Circle((26.425, 7.5), 0.2, color='orange', fill=True))
+
+def generate_static_hull(frame_data):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    draw_mpl_court(ax) # Disegna il campo da basket
+    
+    colors = {'Red': 'red', 'White': 'blue'}
+    fill_colors = {'Red': 'salmon', 'White': 'lightblue'}
+    
+    for team in ['Red', 'White']:
+        points = frame_data[frame_data['team'] == team][['x_meters', 'y_meters']].values
+        ax.scatter(points[:,0], points[:,1], c=colors[team], s=80, edgecolors='white', zorder=5)
+        
+        if len(points) >= 3:
+            try:
+                hull = ConvexHull(points)
+                # Disegna poligono colorato
+                poly = Polygon(points[hull.vertices], facecolor=fill_colors[team], edgecolor=colors[team], alpha=0.3, lw=2)
+                ax.add_patch(poly)
+            except: pass
+            
+    ax.set_xlim(0, REAL_WIDTH_M)
+    ax.set_ylim(REAL_HEIGHT_M, 0) # Inverti Y per coerenza col video
+    ax.axis('off')
+    return fig
 
 def generate_static_voronoi(frame_data, title=None):
-    fig, ax = plt.subplots(figsize=(10, 6)); draw_mpl_court(ax)
+    fig, ax = plt.subplots(figsize=(10, 6))
+    draw_mpl_court(ax) # Disegna il campo da basket
+    
     players = frame_data[frame_data['team'].isin(['Red', 'White'])]
+    
     if len(players) >= 4:
         points = players[['x_meters', 'y_meters']].values
         teams = players['team'].values
-        dummy = np.array([[-5, -5], [35, -5], [35, 20], [-5, 20]])
+        # Punti fittizi fuori campo per chiudere le regioni Voronoi
+        dummy = np.array([[-10, -10], [40, -10], [40, 25], [-10, 25]])
+        
         try:
             vor = Voronoi(np.vstack([points, dummy]))
             for i in range(len(points)):
                 region = vor.regions[vor.point_region[i]]
                 if -1 not in region:
+                    polygon = [vor.vertices[i] for i in region]
                     c = 'red' if teams[i] == 'Red' else 'blue'
-                    ax.add_patch(Polygon(vor.vertices[region], facecolor=c, alpha=0.4, edgecolor='white'))
+                    ax.add_patch(Polygon(polygon, facecolor=c, alpha=0.3, edgecolor='white'))
         except: pass
+        
+    # Disegna giocatori sopra le regioni
     for _, r in players.iterrows():
         c = 'red' if r['team']=='Red' else 'blue'
-        ax.scatter(r['x_meters'], r['y_meters'], c=c, s=80, edgecolors='white', zorder=5)
+        ax.scatter(r['x_meters'], r['y_meters'], c=c, s=80, edgecolors='white', zorder=10)
+        
+    # Palla
     ball = frame_data[frame_data['team']=='Ball']
     if not ball.empty:
-        ax.scatter(ball['x_meters'], ball['y_meters'], c='orange', s=180, edgecolors='black', zorder=10)
-    ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off')
-    if title: ax.set_title(title)
-    return fig
-
-def generate_static_hull(frame_data):
-    fig, ax = plt.subplots(figsize=(10, 6)); draw_mpl_court(ax)
-    for team, col in [('Red','red'), ('White','blue')]:
-        points = frame_data[frame_data['team'] == team][['x_meters', 'y_meters']].values
-        ax.scatter(points[:,0], points[:,1], c=col, s=80)
-        if len(points) >= 3:
-            try:
-                hull = ConvexHull(points)
-                ax.add_patch(Polygon(points[hull.vertices], facecolor=col, alpha=0.3))
-            except: pass
-    ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off')
+        ax.scatter(ball['x_meters'], ball['y_meters'], c='orange', s=150, edgecolors='black', marker='o', zorder=15)
+        
+    ax.set_xlim(0, REAL_WIDTH_M)
+    ax.set_ylim(REAL_HEIGHT_M, 0)
+    ax.axis('off')
+    if title: ax.set_title(title, fontweight='bold')
     return fig
 
 def render_nba_style(f_id, df, target_width, highlight_id=None, is_possessor=False, stats=None):
@@ -530,32 +576,55 @@ else:
                 ax4.tick_params(axis='x', rotation=90); ax4.set_title("Average Speed (m/s)", fontweight='bold'); ax4.legend()
                 st.pyplot(fig4)
 
-            # GIF
+            # --- 3. GIF VORONOI ---
             st.markdown("### 🌀 GIF Voronoi")
             frames_list = sub['frame_filename'].unique()
+            
             if len(frames_list) > 0:
                 bar = st.progress(0, "Rendering GIF..."); tmp="tmp_v"; os.makedirs(tmp, exist_ok=True); files=[]
                 try:
+                    # Genera frame
                     for i, fn in enumerate(frames_list):
                         bar.progress(int((i/len(frames_list))*90))
-                        fig = generate_static_voronoi(df[df['frame_filename']==fn], title=f"Frame {extract_frame_number(fn)}")
-                        p = os.path.join(tmp, f"{i:03d}.png"); fig.savefig(p, dpi=60, bbox_inches='tight'); plt.close(fig); files.append(p)
-                    with imageio.get_writer("action_voronoi.gif", mode='I', duration=0.15, loop=0) as w:
+                        fig = generate_static_voronoi(df[df['frame_filename']==fn], title=f"Tactical Space - Frame {extract_frame_number(fn)}")
+                        p = os.path.join(tmp, f"{i:03d}.png")
+                        fig.savefig(p, dpi=80, bbox_inches='tight', pad_inches=0.1)
+                        plt.close(fig)
+                        files.append(p)
+                    
+                    # Crea GIF
+                    gif_path = "voronoi_local.gif"
+                    with imageio.get_writer(gif_path, mode='I', duration=0.15, loop=0) as w:
                         for f in files: w.append_data(imageio.imread(f))
-                    bar.empty(); st.image("action_voronoi.gif", width="stretch")
-                except Exception as e: st.error(str(e))
-                finally: shutil.rmtree(tmp)
+                    
+                    bar.empty()
+                    st.image(gif_path, use_container_width=True)
+                    
+                except Exception as e: 
+                    st.error(f"Errore GIF: {str(e)}")
+                finally: 
+                    if os.path.exists(tmp): shutil.rmtree(tmp)
             
-            # HEATMAP
+            # --- 4. HEATMAP ---
             st.markdown("### 🔥 Heatmap")
             h1, h2 = st.columns(2)
+            
+            # Heatmap Rossa
             st_red = sub[sub['team']=='Red']
             if not st_red.empty:
-                fig, ax = plt.subplots(figsize=(5,3)); draw_mpl_court(ax)
-                sns.kdeplot(x=st_red['x_meters'], y=st_red['y_meters'], fill=True, cmap='Reds', alpha=0.6, ax=ax)
-                ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off'); ax.set_title("Red Heatmap", fontweight='bold'); h1.pyplot(fig)
+                fig, ax = plt.subplots(figsize=(6, 4))
+                draw_mpl_court(ax) # Campo Basket
+                sns.kdeplot(x=st_red['x_meters'], y=st_red['y_meters'], fill=True, cmap='Reds', alpha=0.6, levels=10, ax=ax)
+                ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0)
+                ax.axis('off'); ax.set_title("Red Team Intensity", fontweight='bold')
+                h1.pyplot(fig)
+            
+            # Heatmap Bianca
             st_white = sub[sub['team']=='White']
             if not st_white.empty:
-                fig, ax = plt.subplots(figsize=(5,3)); draw_mpl_court(ax)
-                sns.kdeplot(x=st_white['x_meters'], y=st_white['y_meters'], fill=True, cmap='Blues', alpha=0.6, ax=ax)
-                ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off'); ax.set_title("White Heatmap", fontweight='bold'); h2.pyplot(fig)
+                fig, ax = plt.subplots(figsize=(6, 4))
+                draw_mpl_court(ax) # Campo Basket
+                sns.kdeplot(x=st_white['x_meters'], y=st_white['y_meters'], fill=True, cmap='Blues', alpha=0.6, levels=10, ax=ax)
+                ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0)
+                ax.axis('off'); ax.set_title("White Team Intensity", fontweight='bold')
+                h2.pyplot(fig)
