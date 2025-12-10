@@ -348,7 +348,7 @@ if mode == "🕹️ Navigazione (Manuale)":
     except: pass
     
     # Render statico per preview veloce
-    img = render_nba_style(f, df, 800, sel_player, is_own, ("-", "-", "-", "-"))
+    img = render_nba_style(f, df, 1920, sel_player, is_own, ("-", "-", "-", "-"))
     if img is not None: preview_ph.image(img, channels="RGB", width="stretch")
     
     c1, c2 = st.columns(2)
