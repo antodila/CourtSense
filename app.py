@@ -358,7 +358,7 @@ else:
             if img is not None: video_frames.append(img)
             
         prog_bar.progress(95, "Compilazione MP4...")
-        imageio.mimwrite(output_file, video_frames, fps=12, macro_block_size=1)
+        imageio.mimwrite(output_file, video_frames, fps=FPS, macro_block_size=1)
         
         prog_bar.empty()
         st.success("Video Generato!")
