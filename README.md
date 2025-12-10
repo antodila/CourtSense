@@ -41,28 +41,26 @@
 
 ```
 CourtSense/
-├── app_local.py              # ✅ Main local app (con commenti completi)
+├── app_local.py              # ✅ Main local app
 ├── app.py                    # ✅ Main web app
 ├── json_to_csv.py            # Convertitore COCO JSON → CSV
 ├── .gitignore                # Configurazione Git
 ├── README.md                 # Questo file
+├── Requirementss.txt         # Dipendenze
 │
-├── datasets/                 # ✅ Dataset principali (sarà in .gitignore)
+├── datasets/                 # ✅ Dataset principali
 │   ├── azione_01/
 │   │   └── train/_annotations.coco.json
 │   └── azione_02/
 │       └── train/_annotations.coco.json
-│
-├── not_dataset/              # ✅ Dataset secondari (sarà in .gitignore)
 │   ├── azione_03/
-│   ├── azione_04/
+│   │   └── train/_annotations.coco.json
+│   └── azione_04/
+│       └── train/_annotations.coco.json
 │   └── azione_05/
+│       └── train/_annotations.coco.json
 │
-├── app_pixel.py              # ⚠️ Versione vecchia (in .gitignore)
-├── app_metri.py              # ⚠️ Versione vecchia (in .gitignore)
-├── tracking_data.csv         # ⚠️ Generato dinamicamente (in .gitignore)
-│
-└── temp_voronoi_gif/         # 📁 Temp (in .gitignore)
+└── tracking_data.csv         # CSV dei dati
 ```
 
 ---
@@ -96,14 +94,14 @@ pip install -r requirements.txt
 ## 📦 Dipendenze
 
 ```
-streamlit>=1.28.0
-pandas>=2.0.0
-opencv-python>=4.8.0
-numpy>=1.24.0
-matplotlib>=3.7.0
-seaborn>=0.12.0
-scipy>=1.11.0
-imageio>=2.32.0
+streamlit
+pandas
+opencv-python
+numpy
+matplotlib
+seaborn
+scipy
+imageio
 ```
 
 Genera il file con:
@@ -147,10 +145,8 @@ Apri browser → `http://localhost:8501`
 3. Clicca "Voronoi" o "Convex Hull" per visualizzare
 
 ### Modalità Riproduzione Auto
-1. Seleziona range di frame (start-end)
-2. Regola FPS riproduzione
-3. Premi **PLAY** per simulare video
-4. Metriche si accumulano in tempo reale
+1. Premi **PLAY** per simulare video
+2. Metriche si accumulano in tempo reale
 
 ### Report Azione
 - **Genera Metriche**: Statistiche aggregate + grafici
@@ -166,7 +162,7 @@ Apri browser → `http://localhost:8501`
 |---------|-------|------------|
 | **Dist** | m | Distanza totale percorsa |
 | **Off-Ball** | m | Movimento senza palla |
-| **Speed** | km/h | Velocità media (ultimi 15 frame) |
+| **Speed** | m/s | Velocità media |
 | **Poss** | s | Tempo possesso palla |
 
 ### Per Squadra (Aggregate)
@@ -215,49 +211,6 @@ python json_to_csv.py
 ### Performance lenta
 - Usa qualità "Ottimizzata (HD)" invece di "Massima (4K)"
 - Riduci FPS slider in riproduzione auto
-
----
-
-## 📁 .gitignore Spiegazione
-
-| Pattern | Motivo |
-|---------|--------|
-| `tracking_data.csv` | Generato da `json_to_csv.py` |
-| `datasets/` | Dataset troppo grandi (~GB) |
-| `not_dataset/` | Dataset secondari non usati |
-| `app_pixel.py` / `app_metri.py` | Versioni vecchie/test |
-| `temp_voronoi_gif/` | Cartella temporanea |
-| `.streamlit/` | Cache Streamlit |
-| `venv/` | Ambiente virtuale locale |
-
-**Include nel repo:**
-- ✅ `app_local.py` (main local app)
-- ✅ `app.py` (main web app)
-- ✅ `json_to_csv.py` (script conversione)
-- ✅ `.gitignore` (questo file)
-- ✅ `README.md` (documentazione)
-- ✅ `requirements.txt` (dipendenze)
-
----
-
-## 🔄 Workflow Git Consigliato
-
-```bash
-# 1. Init repository
-git init
-git add .gitignore README.md app_local.py json_to_csv.py requirements.txt
-git commit -m "Initial commit: CourtSense Tactical Dashboard"
-
-# 2. Aggiungi remote
-git remote add origin https://github.com/yourusername/CourtSense.git
-git branch -M main
-git push -u origin main
-
-# 3. Future updates
-git add app_local.py
-git commit -m "Add feature: X"
-git push
-```
 
 ---
 
