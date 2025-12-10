@@ -606,13 +606,6 @@ else:
                 ax4.tick_params(axis='x', rotation=90); ax4.set_title("Average Speed (m/s)", fontweight='bold'); ax4.legend()
                 st.pyplot(fig4)
 
-            ball_mask = df['team'] == 'Ball'
-            if ball_mask.any():
-                # Applica una media mobile aggressiva (window=5 o 7) solo alla palla
-                # Questo riduce i salti dovuti all'effetto parallasse (Z-axis)
-                df.loc[ball_mask, 'x_meters'] = df.loc[ball_mask, 'x_meters'].rolling(window=5, min_periods=1, center=True).mean()
-                df.loc[ball_mask, 'y_meters'] = df.loc[ball_mask, 'y_meters'].rolling(window=5, min_periods=1, center=True).mean()
-            
             # --- 3. GIF VORONOI ---
             st.markdown("### 🌀 GIF Voronoi")
             frames_list = sub['frame_filename'].unique()

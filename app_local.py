@@ -217,7 +217,7 @@ def draw_radar_court(img, width, height, color=(200, 200, 200)):
     return img
 
 def draw_mpl_court(ax, color='black', lw=2):
-    """Disegna un campo da basket FIBA su Matplotlib."""
+    """Disegna un campo da basket FIBA realistico su Matplotlib."""
     # 1. Perimetro e linea centrale
     court = Rectangle((0, 0), REAL_WIDTH_M, REAL_HEIGHT_M, linewidth=lw, color=color, fill=False)
     ax.add_patch(court)
@@ -231,20 +231,20 @@ def draw_mpl_court(ax, color='black', lw=2):
     ax.add_patch(Rectangle((22.2, 5.05), 5.8, 4.9, linewidth=lw, color=color, fill=False))
     
     # 3. Lunette (Free Throw Circles) - Raggio 1.8m
-    # Sinistra (Semicerchio o cerchio tratteggiato)
+    # Sinistra
     ax.add_patch(Arc((5.8, 7.5), 3.6, 3.6, theta1=-90, theta2=90, color=color, linewidth=lw))
     # Destra
     ax.add_patch(Arc((22.2, 7.5), 3.6, 3.6, theta1=90, theta2=270, color=color, linewidth=lw))
     
-    # 4. Linea da 3 Punti - Raggio 6.75m
+    # 4. Linea da 3 Punti (Arco) - Raggio 6.75m
     # Sinistra
     ax.add_patch(Arc((1.575, 7.5), 13.5, 13.5, theta1=-90, theta2=90, color=color, linewidth=lw))
     # Destra
     ax.add_patch(Arc((26.425, 7.5), 13.5, 13.5, theta1=90, theta2=270, color=color, linewidth=lw))
     
-    # 5. Canestri (Opzionale, piccoli cerchi)
-    ax.add_patch(Circle((1.575, 7.5), 0.2, color='orange', fill=True))
-    ax.add_patch(Circle((26.425, 7.5), 0.2, color='orange', fill=True))
+    # 5. Canestri (Cerchietti arancioni)
+    ax.add_patch(Circle((1.575, 7.5), 0.25, color='orange', fill=True))
+    ax.add_patch(Circle((26.425, 7.5), 0.25, color='orange', fill=True))
 
 def generate_static_hull(frame_data):
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -272,14 +272,16 @@ def generate_static_hull(frame_data):
 
 def generate_static_voronoi(frame_data, title=None):
     fig, ax = plt.subplots(figsize=(10, 6))
-    draw_mpl_court(ax) # Disegna il campo da basket
+    
+    # Usa la nuova funzione realistica
+    draw_mpl_court(ax) 
     
     players = frame_data[frame_data['team'].isin(['Red', 'White'])]
     
     if len(players) >= 4:
         points = players[['x_meters', 'y_meters']].values
         teams = players['team'].values
-        # Punti fittizi fuori campo per chiudere le regioni Voronoi
+        # Punti fittizi per chiudere le regioni Voronoi
         dummy = np.array([[-10, -10], [40, -10], [40, 25], [-10, 25]])
         
         try:
@@ -292,7 +294,7 @@ def generate_static_voronoi(frame_data, title=None):
                     ax.add_patch(Polygon(polygon, facecolor=c, alpha=0.3, edgecolor='white'))
         except: pass
         
-    # Disegna giocatori sopra le regioni
+    # Disegna giocatori
     for _, r in players.iterrows():
         c = 'red' if r['team']=='Red' else 'blue'
         ax.scatter(r['x_meters'], r['y_meters'], c=c, s=80, edgecolors='white', zorder=10)
@@ -673,6 +675,7 @@ else: # AUTO
                     # Genera frame
                     for i, fn in enumerate(frames_list):
                         bar.progress(int((i/len(frames_list))*90))
+                        # Chiama la funzione aggiornata
                         fig = generate_static_voronoi(df[df['frame_filename']==fn], title=f"Tactical Space - Frame {extract_frame_number(fn)}")
                         p = os.path.join(tmp, f"{i:03d}.png")
                         fig.savefig(p, dpi=80, bbox_inches='tight', pad_inches=0.1)
