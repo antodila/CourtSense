@@ -390,6 +390,50 @@ def calculate_stats_dummy(df_action, player_id, current_frame, ownership_table):
     # Dummy per UI
     return 0, 0, "-", 0
 
+@st.cache_data(show_spinner=False)
+def get_cached_voronoi_gif(df_subset, file_prefix="voronoi"):
+    """
+    Genera la GIF Voronoi solo se i dati cambiano.
+    """
+    frames_list = df_subset['frame_filename'].unique()
+    if len(frames_list) == 0:
+        return None
+
+    tmp_dir = f"tmp_{file_prefix}"
+    gif_path = f"{file_prefix}_output.gif"
+    
+    # Creazione cartella temp
+    os.makedirs(tmp_dir, exist_ok=True)
+    files = []
+    
+    try:
+        # Generazione frame (Matplotlib)
+        for i, fn in enumerate(frames_list):
+            # Nota: qui chiamiamo la tua funzione esistente
+            frame_num = extract_frame_number(fn)
+            fig = generate_static_voronoi(
+                df_subset[df_subset['frame_filename'] == fn], 
+                title=f"Tactical Space - Frame {frame_num}"
+            )
+            p = os.path.join(tmp_dir, f"{i:03d}.png")
+            fig.savefig(p, dpi=80, bbox_inches='tight', pad_inches=0.1)
+            plt.close(fig) # Chiude la figura per liberare memoria
+            files.append(p)
+        
+        # Creazione GIF
+        with imageio.get_writer(gif_path, mode='I', duration=0.15, loop=0) as w:
+            for f in files:
+                w.append_data(imageio.imread(f))
+                
+        return gif_path
+
+    except Exception as e:
+        return None
+    finally:
+        # Pulizia file temporanei
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 # ═══════════════════════════════════════════════════════════════════════════
 # MAIN APP
 # ═══════════════════════════════════════════════════════════════════════════
@@ -587,8 +631,8 @@ else:
                     awt = 0; awo = 0; asw = 0; apw = 0
                 
                 k1, k2 = st.columns(2)
-                k1.info(f"🔴 **Red Avg**: Dist **{atr:.1f}m**, Speed **{asr:.2f} m/s**, Poss **{apr:.1f}s**")
-                k2.info(f"⚪ **White Avg**: Dist **{awt:.1f}m**, Speed **{asw:.2f} m/s**, Poss **{apw:.1f}s**")
+                k1.info(f"🔴 **Red Avg**: Dist **{atr:.1f}m** (Off: {aro:.1f}m), Speed **{asr:.2f} m/s**, Poss **{apr:.1f}s**")
+                k2.info(f"⚪ **White Avg**: Dist **{awt:.1f}m** (Off: {awo:.1f}m), Speed **{asw:.2f} m/s**, Poss **{apw:.1f}s**")
                 
                 # --- GRAFICI BARRE CON LINEE MEDIE (AGGIORNATO) ---
                 valid_players = pd.concat([real_players_red, real_players_white])['Player'].unique()
@@ -613,40 +657,6 @@ else:
                 sns.barplot(data=spdf_clean, x='Player', y='Poss', hue='Team', palette={'Red':'red', 'White':'blue'}, ax=ax3)
                 ax3.set_title("Possession Time (s)"); ax3.tick_params(axis='x', rotation=90); col_g2.pyplot(fig3)
 
-            # --- GIF & HEATMAP ---
-            ball_mask = df['team'] == 'Ball'
-            if ball_mask.any():
-                 df.loc[ball_mask, 'x_meters'] = df.loc[ball_mask, 'x_meters'].rolling(window=5, min_periods=1, center=True).mean()
-                 df.loc[ball_mask, 'y_meters'] = df.loc[ball_mask, 'y_meters'].rolling(window=5, min_periods=1, center=True).mean()
-            
-            st.markdown("### 🌀 GIF Voronoi")
-            frames_list = sub['frame_filename'].unique()
-            if len(frames_list) > 0:
-                bar = st.progress(0, "Rendering GIF..."); tmp="tmp_v"; os.makedirs(tmp, exist_ok=True); files=[]
-                try:
-                    for i, fn in enumerate(frames_list):
-                        bar.progress(int((i/len(frames_list))*90))
-                        fig = generate_static_voronoi(df[df['frame_filename']==fn], title=f"Tactical Space - Frame {extract_frame_number(fn)}")
-                        p = os.path.join(tmp, f"{i:03d}.png"); fig.savefig(p, dpi=80, bbox_inches='tight', pad_inches=0.1); plt.close(fig); files.append(p)
-                    gif_path = "voronoi_local.gif"
-                    with imageio.get_writer(gif_path, mode='I', duration=0.15, loop=0) as w:
-                        for f in files: w.append_data(imageio.imread(f))
-                    bar.empty(); st.image(gif_path, use_container_width=True)
-                except Exception as e: st.error(str(e))
-                finally: shutil.rmtree(tmp, ignore_errors=True)
-            
-            st.markdown("### 🔥 Heatmap")
-            h1, h2 = st.columns(2)
-            st_red = sub[sub['team']=='Red']; st_white = sub[sub['team']=='White']
-            if not st_red.empty:
-                fig, ax = plt.subplots(figsize=(6, 4)); draw_mpl_court(ax)
-                sns.kdeplot(x=st_red['x_meters'], y=st_red['y_meters'], fill=True, cmap='Reds', alpha=0.6, levels=10, ax=ax)
-                ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off'); ax.set_title("Red Heatmap"); h1.pyplot(fig)
-            if not st_white.empty:
-                fig, ax = plt.subplots(figsize=(6, 4)); draw_mpl_court(ax)
-                sns.kdeplot(x=st_white['x_meters'], y=st_white['y_meters'], fill=True, cmap='Blues', alpha=0.6, levels=10, ax=ax)
-                ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off'); ax.set_title("White Heatmap"); h2.pyplot(fig)
-            
             # --- 3. ANALISI DINAMICA VELOCITÀ (COERENTE) ---
             st.markdown("---")
             st.markdown("### ⚡ Analisi Dinamica Velocità (Speed vs Time)")
@@ -688,3 +698,32 @@ else:
                 c_avg, c_max = st.columns(2)
                 c_avg.metric("Velocità Media (Totale)", f"{official_avg:.2f} m/s")
                 c_max.metric("Picco Velocità", f"{smooth_speed.max():.2f} m/s")
+
+            # --- GIF & HEATMAP ---
+            ball_mask = df['team'] == 'Ball'
+            if ball_mask.any():
+                 df.loc[ball_mask, 'x_meters'] = df.loc[ball_mask, 'x_meters'].rolling(window=5, min_periods=1, center=True).mean()
+                 df.loc[ball_mask, 'y_meters'] = df.loc[ball_mask, 'y_meters'].rolling(window=5, min_periods=1, center=True).mean()
+            
+            st.markdown("### 🌀 GIF Voronoi")
+            # Mostriamo uno spinner mentre la funzione (eventualmente) lavora
+            with st.spinner("Caricamento Animazione Tattica..."):
+                # Passiamo 'sub' che contiene solo i frame selezionati (start-end)
+                gif_path = get_cached_voronoi_gif(sub, file_prefix="voronoi_cache")
+            
+            if gif_path and os.path.exists(gif_path):
+                st.image(gif_path, use_container_width=True)
+            else:
+                st.warning("Nessun dato sufficiente per generare la Voronoi Map.")
+            
+            st.markdown("### 🔥 Heatmap")
+            h1, h2 = st.columns(2)
+            st_red = sub[sub['team']=='Red']; st_white = sub[sub['team']=='White']
+            if not st_red.empty:
+                fig, ax = plt.subplots(figsize=(6, 4)); draw_mpl_court(ax)
+                sns.kdeplot(x=st_red['x_meters'], y=st_red['y_meters'], fill=True, cmap='Reds', alpha=0.6, levels=10, ax=ax)
+                ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off'); ax.set_title("Red Heatmap"); h1.pyplot(fig)
+            if not st_white.empty:
+                fig, ax = plt.subplots(figsize=(6, 4)); draw_mpl_court(ax)
+                sns.kdeplot(x=st_white['x_meters'], y=st_white['y_meters'], fill=True, cmap='Blues', alpha=0.6, levels=10, ax=ax)
+                ax.set_xlim(0, REAL_WIDTH_M); ax.set_ylim(REAL_HEIGHT_M, 0); ax.axis('off'); ax.set_title("White Heatmap"); h2.pyplot(fig)
