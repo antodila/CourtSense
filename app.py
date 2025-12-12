@@ -391,25 +391,26 @@ def calculate_stats_dummy(df_action, player_id, current_frame, ownership_table):
     return 0, 0, "-", 0
 
 @st.cache_data(show_spinner=False)
-def get_cached_voronoi_gif(df_subset, file_prefix="voronoi"):
+def get_cached_voronoi_gif(df_subset, start_frame, end_frame, file_prefix="voronoi"):
     """
-    Genera la GIF Voronoi solo se i dati cambiano.
+    Genera la GIF Voronoi. 
+    Usa start_frame e end_frame come parte della chiave di cache e del nome file 
+    per evitare conflitti o mancati aggiornamenti.
     """
     frames_list = df_subset['frame_filename'].unique()
     if len(frames_list) == 0:
         return None
 
-    tmp_dir = f"tmp_{file_prefix}"
-    gif_path = f"{file_prefix}_output.gif"
+    # Nome file UNIVOCO per questo range (così il browser non si confonde)
+    gif_name = f"{file_prefix}_{start_frame}_{end_frame}.gif"
+    tmp_dir = f"tmp_{file_prefix}_{start_frame}_{end_frame}"
     
-    # Creazione cartella temp
     os.makedirs(tmp_dir, exist_ok=True)
     files = []
     
     try:
-        # Generazione frame (Matplotlib)
+        # Generazione frame
         for i, fn in enumerate(frames_list):
-            # Nota: qui chiamiamo la tua funzione esistente
             frame_num = extract_frame_number(fn)
             fig = generate_static_voronoi(
                 df_subset[df_subset['frame_filename'] == fn], 
@@ -417,20 +418,19 @@ def get_cached_voronoi_gif(df_subset, file_prefix="voronoi"):
             )
             p = os.path.join(tmp_dir, f"{i:03d}.png")
             fig.savefig(p, dpi=80, bbox_inches='tight', pad_inches=0.1)
-            plt.close(fig) # Chiude la figura per liberare memoria
+            plt.close(fig)
             files.append(p)
         
         # Creazione GIF
-        with imageio.get_writer(gif_path, mode='I', duration=0.15, loop=0) as w:
+        with imageio.get_writer(gif_name, mode='I', duration=0.15, loop=0) as w:
             for f in files:
                 w.append_data(imageio.imread(f))
                 
-        return gif_path
+        return gif_name
 
     except Exception as e:
         return None
     finally:
-        # Pulizia file temporanei
         if os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -706,13 +706,13 @@ else:
                  df.loc[ball_mask, 'y_meters'] = df.loc[ball_mask, 'y_meters'].rolling(window=5, min_periods=1, center=True).mean()
             
             st.markdown("### 🌀 GIF Voronoi")
-            # Mostriamo uno spinner mentre la funzione (eventualmente) lavora
+            
             with st.spinner("Caricamento Animazione Tattica..."):
-                # Passiamo 'sub' che contiene solo i frame selezionati (start-end)
-                gif_path = get_cached_voronoi_gif(sub, file_prefix="voronoi_cache")
+                # ORA passiamo anche start e end!
+                gif_path = get_cached_voronoi_gif(sub, start, end, file_prefix="voronoi")
             
             if gif_path and os.path.exists(gif_path):
-                st.image(gif_path, width="stretch")
+                st.image(gif_path, use_container_width=True)
             else:
                 st.warning("Nessun dato sufficiente per generare la Voronoi Map.")
             
