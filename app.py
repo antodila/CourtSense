@@ -494,7 +494,8 @@ else:
 
     # --- REPORT FINALE ---
     st.markdown("---"); st.subheader("📈 Report")
-    if st.button("Genera Metriche"):
+    if st.button("Genera Metriche") or st.session_state.metrics_active:
+        st.session_state.metrics_active = True
         with st.spinner("Calcolo traiettorie..."):
             sub = df[(df['frame_id'] >= start) & (df['frame_id'] <= end)]
             players = sub[sub['team'].isin(['Red', 'White'])]
