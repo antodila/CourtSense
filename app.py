@@ -689,7 +689,7 @@ else:
                 fig_speed.add_hrect(y0=0, y1=2, line_width=0, fillcolor="green", opacity=0.2, annotation_text="Walk")
                 fig_speed.add_hrect(y0=2, y1=4.5, line_width=0, fillcolor="yellow", opacity=0.2, annotation_text="Jog")
                 fig_speed.add_hrect(y0=4.5, y1=10, line_width=0, fillcolor="red", opacity=0.2, annotation_text="Sprint")
-                st.plotly_chart(fig_speed, use_container_width=True)
+                st.plotly_chart(fig_speed, width="stretch")
                 
                 # RECUPERA IL VALORE UFFICIALE CALCOLATO NEL LOOP PRECEDENTE
                 # Così il numero combacia PERFETTAMENTE con la media del team e le barre
@@ -712,7 +712,7 @@ else:
                 gif_path = get_cached_voronoi_gif(sub, file_prefix="voronoi_cache")
             
             if gif_path and os.path.exists(gif_path):
-                st.image(gif_path, use_container_width=True)
+                st.image(gif_path, width="stretch")
             else:
                 st.warning("Nessun dato sufficiente per generare la Voronoi Map.")
             
