@@ -601,68 +601,68 @@ else:
                 col_g2.pyplot(fig3)
                 
                 st.markdown("---")
-            st.markdown("### ⚡ Analisi Dinamica Velocità (Speed vs Time)")
+                st.markdown("### ⚡ Analisi Dinamica Velocità (Speed vs Time)")
             
-            # 1. Selezione del Giocatore specifico per l'analisi
-            # Prendiamo i giocatori presenti in questa clip
-            players_in_clip = sorted(sub[sub['team'].isin(['Red', 'White'])]['player_unique_id'].unique())
-            target_player = st.selectbox("Seleziona Giocatore:", players_in_clip)
+                # 1. Selezione del Giocatore specifico per l'analisi
+                # Prendiamo i giocatori presenti in questa clip
+                players_in_clip = sorted(sub[sub['team'].isin(['Red', 'White'])]['player_unique_id'].unique())
+                target_player = st.selectbox("Seleziona Giocatore:", players_in_clip)
 
-            if target_player:
-                # 2. Estrai i dati del singolo giocatore
-                p_data = sub[sub['player_unique_id'] == target_player].sort_values('frame_id').copy()
+                if target_player:
+                    # 2. Estrai i dati del singolo giocatore
+                    p_data = sub[sub['player_unique_id'] == target_player].sort_values('frame_id').copy()
                 
-                # 3. Ricalcola la velocità istantanea (Logica Fisica)
-                try:
-                    xm = savgol_filter(p_data['x_meters'], 15, 2)
-                    ym = savgol_filter(p_data['y_meters'], 15, 2)
-                except:
-                    xm = p_data['x_meters'].values
-                    ym = p_data['y_meters'].values
+                    # 3. Ricalcola la velocità istantanea (Logica Fisica)
+                    try:
+                        xm = savgol_filter(p_data['x_meters'], 15, 2)
+                        ym = savgol_filter(p_data['y_meters'], 15, 2)
+                    except:
+                        xm = p_data['x_meters'].values
+                        ym = p_data['y_meters'].values
 
-                dx = np.diff(xm, prepend=xm[0])
-                dy = np.diff(ym, prepend=ym[0])
+                    dx = np.diff(xm, prepend=xm[0])
+                    dy = np.diff(ym, prepend=ym[0])
                 
-                dist_per_frame = np.sqrt(dx**2 + dy**2)
+                    dist_per_frame = np.sqrt(dx**2 + dy**2)
                 
-                # Velocità Grezza
-                raw_speed = dist_per_frame * PHYSICS_FPS 
+                    # Velocità Grezza
+                    raw_speed = dist_per_frame * PHYSICS_FPS 
                 
-                # --- Rolling Mean su 1 Secondo (12 frame) ---
-                speed_series = pd.Series(raw_speed)
-                smooth_speed = speed_series.rolling(window=12, min_periods=1, center=True).mean()
+                    # --- Rolling Mean su 1 Secondo (12 frame) ---
+                    speed_series = pd.Series(raw_speed)
+                    smooth_speed = speed_series.rolling(window=12, min_periods=1, center=True).mean()
                 
-                # Pulizia rumore
-                smooth_speed[smooth_speed < 0.2] = 0
+                    # Pulizia rumore
+                    smooth_speed[smooth_speed < 0.2] = 0
                 
-                # Aggiungi al dataframe (converti in numpy)
-                p_data['speed_m_s'] = smooth_speed.to_numpy()
+                    # Aggiungi al dataframe (converti in numpy)
+                    p_data['speed_m_s'] = smooth_speed.to_numpy()
                 
-                # 4. Genera il Grafico
-                fig_speed = px.line(
-                    p_data, 
-                    x='frame_id', 
-                    y='speed_m_s',
-                    title=f"Velocità nel tempo: {target_player}",
-                    labels={'frame_id': 'Frame Timeline', 'speed_m_s': 'Velocità (m/s)'},
-                    template="plotly_white"
-                )
+                    # 4. Genera il Grafico
+                    fig_speed = px.line(
+                        p_data, 
+                        x='frame_id', 
+                        y='speed_m_s',
+                        title=f"Velocità nel tempo: {target_player}",
+                        labels={'frame_id': 'Frame Timeline', 'speed_m_s': 'Velocità (m/s)'},
+                        template="plotly_white"
+                    )
                 
-                # Zone colorate
-                fig_speed.add_hrect(y0=0, y1=2, line_width=0, fillcolor="green", opacity=0.1, annotation_text="Walk/Stand")
-                fig_speed.add_hrect(y0=2, y1=4.5, line_width=0, fillcolor="yellow", opacity=0.1, annotation_text="Jog")
-                fig_speed.add_hrect(y0=4.5, y1=10, line_width=0, fillcolor="red", opacity=0.1, annotation_text="Sprint")
+                    # Zone colorate
+                    fig_speed.add_hrect(y0=0, y1=2, line_width=0, fillcolor="green", opacity=0.1, annotation_text="Walk/Stand")
+                    fig_speed.add_hrect(y0=2, y1=4.5, line_width=0, fillcolor="yellow", opacity=0.1, annotation_text="Jog")
+                    fig_speed.add_hrect(y0=4.5, y1=10, line_width=0, fillcolor="red", opacity=0.1, annotation_text="Sprint")
                 
-                st.plotly_chart(fig_speed, width="stretch")
+                    st.plotly_chart(fig_speed, width="stretch")
                 
-                # --- CORREZIONE QUI SOTTO ---
-                # Usiamo smooth_speed invece di speed_curve
-                avg_s = smooth_speed.mean()
-                max_s = smooth_speed.max()
+                    # --- CORREZIONE QUI SOTTO ---
+                    # Usiamo smooth_speed invece di speed_curve
+                    avg_s = smooth_speed.mean()
+                    max_s = smooth_speed.max()
                 
-                k1, k2 = st.columns(2)
-                k1.metric("Velocità Media", f"{avg_s:.2f} m/s")
-                k2.metric("Picco Velocità", f"{max_s:.2f} m/s")
+                    k1, k2 = st.columns(2)
+                    k1.metric("Velocità Media", f"{avg_s:.2f} m/s")
+                    k2.metric("Picco Velocità", f"{max_s:.2f} m/s")
 
             ball_mask = df['team'] == 'Ball'
             if ball_mask.any():
