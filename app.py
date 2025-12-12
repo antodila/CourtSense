@@ -494,15 +494,22 @@ else:
 
     # --- REPORT FINALE ---
     st.markdown("---"); st.subheader("📈 Report")
+
+    # Inizializza lo stato se non esiste
+    if 'metrics_active' not in st.session_state:
+        st.session_state.metrics_active = False
+
+    # Gestione Bottone + Stato
     if st.button("Genera Metriche") or st.session_state.metrics_active:
         st.session_state.metrics_active = True
+        
         with st.spinner("Calcolo traiettorie..."):
             sub = df[(df['frame_id'] >= start) & (df['frame_id'] <= end)]
             players = sub[sub['team'].isin(['Red', 'White'])]
             own_sub = own_table[own_table.index.isin(sub['frame_id'].unique())]
-            duration_s = (end - start + 1) / PHYSICS_FPS # Uso 15.0 per calcolo tempo fisico
+            duration_s = (end - start + 1) / PHYSICS_FPS 
             
-            # 1. Spacing
+            # 1. Spacing (Invariato)
             spac = []
             for f, g in players.groupby('frame_id'):
                 for t in ['Red', 'White']:
@@ -519,41 +526,28 @@ else:
                 ax1.axhline(mr, c='darkred', ls='--', label=f"R:{mr:.1f}m"); ax1.axhline(mw, c='darkblue', ls='--', label=f"W:{mw:.1f}m")
                 ax1.set_title("Avg Team Spacing (Meters)", fontweight='bold'); ax1.legend(); st.pyplot(fig1)
 
-            # 2. Stats (Macro Step Logic)
+            # 2. Stats & Workload (Invariato per coerenza storica)
             moves = []; speed_poss_data = []
-            SAMPLE_RATE = 6 
             
             for pid, g in players.groupby('player_unique_id'):
                 g = g.sort_values('frame_id')
-                
-                # --- SAVITZKY-GOLAY FILTER ---
                 try:
                     xm = savgol_filter(g['x_meters'], 15, 2)
                     ym = savgol_filter(g['y_meters'], 15, 2)
                 except:
-                    xm = g['x_meters'].values
-                    ym = g['y_meters'].values
+                    xm = g['x_meters'].values; ym = g['y_meters'].values
                 
-                # Differenze
                 dx = np.diff(xm, prepend=xm[0])
                 dy = np.diff(ym, prepend=ym[0])
                 dists = np.sqrt(dx**2 + dy**2)
-                
-                # Noise Gate
-                dists[dists < 0.02] = 0
-                
-                # Max Speed
-                dists[dists > 0.8] = 0.8
+                dists[dists < 0.02] = 0 # Noise gate
+                dists[dists > 0.8] = 0.8 # Clamp errori
                 
                 tot_m = np.sum(dists)
-                
-                # Velocità media (m/s)
                 avg_spd_ms = (tot_m / duration_s) if duration_s > 0 else 0
                 
-                # Possesso (Tempo)
                 is_poss = g['frame_id'].isin(own_sub[own_sub['player_unique_id'] == pid].index).values
                 poss_s = is_poss.sum() / PHYSICS_FPS
-                
                 poss_ratio = poss_s / duration_s if duration_s > 0 else 0
                 off_m = tot_m * (1.0 - poss_ratio)
                 
@@ -564,106 +558,70 @@ else:
             if moves:
                 mdf = pd.DataFrame(moves); spdf = pd.DataFrame(speed_poss_data)
                 
+                # Calcolo Medie Squadra (FIX FANTASMI)
+                real_players_red = spdf[(spdf['Team']=='Red') & (spdf['Speed'] > 0.5)]
+                real_players_white = spdf[(spdf['Team']=='White') & (spdf['Speed'] > 0.5)]
+                
                 atr = mdf[(mdf['Team']=='Red') & (mdf['Type']=='Total')]['Dist'].mean()
                 aro = mdf[(mdf['Team']=='Red') & (mdf['Type']=='Off-Ball')]['Dist'].mean()
                 awt = mdf[(mdf['Team']=='White') & (mdf['Type']=='Total')]['Dist'].mean()
                 awo = mdf[(mdf['Team']=='White') & (mdf['Type']=='Off-Ball')]['Dist'].mean()
                 
-                asr = spdf[spdf['Team']=='Red']['Speed'].mean()
+                asr = real_players_red['Speed'].mean() if not real_players_red.empty else 0
                 apr = spdf[spdf['Team']=='Red']['Poss'].mean()
-                asw = spdf[spdf['Team']=='White']['Speed'].mean()
+                asw = real_players_white['Speed'].mean() if not real_players_white.empty else 0
                 apw = spdf[spdf['Team']=='White']['Poss'].mean()
                 
                 k1, k2 = st.columns(2)
-                k1.info(f"""
-                🔴 **Red Team Avg**
-                - 📏 Dist: **{atr:.1f} m** (Off: {aro:.1f}m)
-                - ⚡ Speed: **{asr:.2f} m/s**
-                - ⏱️ Poss: **{apr:.1f} s**
-                """)
-                k2.info(f"""
-                ⚪ **White Team Avg**
-                - 📏 Dist: **{awt:.1f} m** (Off: {awo:.1f}m)
-                - ⚡ Speed: **{asw:.2f} m/s**
-                - ⏱️ Poss: **{apw:.1f} s**
-                """)
+                k1.info(f"🔴 **Red Avg**: Dist **{atr:.1f}m**, Speed **{asr:.2f} m/s**, Poss **{apr:.1f}s**")
+                k2.info(f"⚪ **White Avg**: Dist **{awt:.1f}m**, Speed **{asw:.2f} m/s**, Poss **{apw:.1f}s**")
                 
                 col_g1, col_g2 = st.columns(2)
-                
                 fig2, ax2 = plt.subplots(figsize=(6, 5))
                 sns.barplot(data=mdf, x='Player', y='Dist', hue='Type', palette={'Total':'gray', 'Off-Ball':'limegreen'}, ax=ax2)
-                ax2.axhline(atr, c='darkred', ls='--', label="Avg R"); ax2.axhline(awt, c='darkblue', ls='--', label="Avg W")
-                ax2.tick_params(axis='x', rotation=90); ax2.set_title("Workload (Meters)", fontweight='bold'); ax2.legend(fontsize='x-small')
-                col_g1.pyplot(fig2)
+                ax2.set_title("Workload (Meters)"); col_g1.pyplot(fig2)
                 
                 fig3, ax3 = plt.subplots(figsize=(6, 5))
                 sns.barplot(data=spdf, x='Player', y='Poss', hue='Team', palette={'Red':'red', 'White':'blue'}, ax=ax3)
-                ax3.tick_params(axis='x', rotation=90); ax3.set_title("Possession Time (s)", fontweight='bold')
-                col_g2.pyplot(fig3)
-                
-                st.markdown("---")
-                st.markdown("### ⚡ Analisi Dinamica Velocità (Speed vs Time)")
+                ax3.set_title("Possession Time (s)"); col_g2.pyplot(fig3)
+
+            # --- 3. ANALISI DINAMICA VELOCITÀ (NUOVA) ---
+            st.markdown("---")
+            st.markdown("### ⚡ Analisi Dinamica Velocità (Speed vs Time)")
             
-                # 1. Selezione del Giocatore specifico per l'analisi
-                # Prendiamo i giocatori presenti in questa clip
-                players_in_clip = sorted(sub[sub['team'].isin(['Red', 'White'])]['player_unique_id'].unique())
-                target_player = st.selectbox("Seleziona Giocatore:", players_in_clip)
+            players_in_clip = sorted(sub[sub['team'].isin(['Red', 'White'])]['player_unique_id'].unique())
+            target_player = st.selectbox("Seleziona Giocatore:", players_in_clip)
 
-                if target_player:
-                    # 2. Estrai i dati del singolo giocatore
-                    p_data = sub[sub['player_unique_id'] == target_player].sort_values('frame_id').copy()
-                
-                    # 3. Ricalcola la velocità istantanea (Logica Fisica)
-                    try:
-                        xm = savgol_filter(p_data['x_meters'], 15, 2)
-                        ym = savgol_filter(p_data['y_meters'], 15, 2)
-                    except:
-                        xm = p_data['x_meters'].values
-                        ym = p_data['y_meters'].values
+            if target_player:
+                p_data = sub[sub['player_unique_id'] == target_player].sort_values('frame_id').copy()
+                try:
+                    xm = savgol_filter(p_data['x_meters'], 15, 2)
+                    ym = savgol_filter(p_data['y_meters'], 15, 2)
+                except:
+                    xm = p_data['x_meters'].values; ym = p_data['y_meters'].values
 
-                    dx = np.diff(xm, prepend=xm[0])
-                    dy = np.diff(ym, prepend=ym[0])
+                dx = np.diff(xm, prepend=xm[0])
+                dy = np.diff(ym, prepend=ym[0])
+                dist_per_frame = np.sqrt(dx**2 + dy**2)
+                raw_speed = dist_per_frame * PHYSICS_FPS 
                 
-                    dist_per_frame = np.sqrt(dx**2 + dy**2)
+                # Rolling Mean (1s)
+                speed_series = pd.Series(raw_speed)
+                smooth_speed = speed_series.rolling(window=12, min_periods=1, center=True).mean()
+                smooth_speed[smooth_speed < 0.2] = 0
+                p_data['speed_m_s'] = smooth_speed.to_numpy()
                 
-                    # Velocità Grezza
-                    raw_speed = dist_per_frame * PHYSICS_FPS 
+                fig_speed = px.line(p_data, x='frame_id', y='speed_m_s', title=f"Velocità: {target_player}", labels={'speed_m_s':'m/s'}, template="plotly_dark")
+                # Zone di intensità
+                fig_speed.add_hrect(y0=0, y1=2, line_width=0, fillcolor="green", opacity=0.2, annotation_text="Walk")
+                fig_speed.add_hrect(y0=2, y1=4.5, line_width=0, fillcolor="yellow", opacity=0.2, annotation_text="Jog")
+                fig_speed.add_hrect(y0=4.5, y1=10, line_width=0, fillcolor="red", opacity=0.2, annotation_text="Sprint")
                 
-                    # --- Rolling Mean su 1 Secondo (12 frame) ---
-                    speed_series = pd.Series(raw_speed)
-                    smooth_speed = speed_series.rolling(window=12, min_periods=1, center=True).mean()
+                st.plotly_chart(fig_speed, use_container_width=True)
                 
-                    # Pulizia rumore
-                    smooth_speed[smooth_speed < 0.2] = 0
-                
-                    # Aggiungi al dataframe (converti in numpy)
-                    p_data['speed_m_s'] = smooth_speed.to_numpy()
-                
-                    # 4. Genera il Grafico
-                    fig_speed = px.line(
-                        p_data, 
-                        x='frame_id', 
-                        y='speed_m_s',
-                        title=f"Velocità nel tempo: {target_player}",
-                        labels={'frame_id': 'Frame Timeline', 'speed_m_s': 'Velocità (m/s)'},
-                        template="plotly_white"
-                    )
-                
-                    # Zone colorate
-                    fig_speed.add_hrect(y0=0, y1=2, line_width=0, fillcolor="green", opacity=0.1, annotation_text="Walk/Stand")
-                    fig_speed.add_hrect(y0=2, y1=4.5, line_width=0, fillcolor="yellow", opacity=0.1, annotation_text="Jog")
-                    fig_speed.add_hrect(y0=4.5, y1=10, line_width=0, fillcolor="red", opacity=0.1, annotation_text="Sprint")
-                
-                    st.plotly_chart(fig_speed, width="stretch")
-                
-                    # --- CORREZIONE QUI SOTTO ---
-                    # Usiamo smooth_speed invece di speed_curve
-                    avg_s = smooth_speed.mean()
-                    max_s = smooth_speed.max()
-                
-                    k1, k2 = st.columns(2)
-                    k1.metric("Velocità Media", f"{avg_s:.2f} m/s")
-                    k2.metric("Picco Velocità", f"{max_s:.2f} m/s")
+                c_avg, c_max = st.columns(2)
+                c_avg.metric("Velocità Media", f"{smooth_speed.mean():.2f} m/s")
+                c_max.metric("Picco Velocità", f"{smooth_speed.max():.2f} m/s")
 
             ball_mask = df['team'] == 'Ball'
             if ball_mask.any():
