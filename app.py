@@ -617,7 +617,7 @@ else:
                 fig_speed.add_hrect(y0=2, y1=4.5, line_width=0, fillcolor="yellow", opacity=0.2, annotation_text="Jog")
                 fig_speed.add_hrect(y0=4.5, y1=10, line_width=0, fillcolor="red", opacity=0.2, annotation_text="Sprint")
                 
-                st.plotly_chart(fig_speed, use_container_width=True)
+                st.plotly_chart(fig_speed, width="stretch")
                 
                 c_avg, c_max = st.columns(2)
                 c_avg.metric("Velocità Media", f"{smooth_speed.mean():.2f} m/s")
