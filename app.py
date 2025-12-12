@@ -12,6 +12,7 @@ from itertools import combinations
 import imageio.v2 as imageio
 import shutil
 from scipy.signal import savgol_filter
+import plotly.express as px
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CONFIGURAZIONE BASE
@@ -599,12 +600,72 @@ else:
                 ax3.tick_params(axis='x', rotation=90); ax3.set_title("Possession Time (s)", fontweight='bold')
                 col_g2.pyplot(fig3)
                 
-                st.markdown("##### Velocity Analysis")
-                fig4, ax4 = plt.subplots(figsize=(10, 4))
-                sns.barplot(data=spdf, x='Player', y='Speed', hue='Team', palette={'Red':'red', 'White':'blue'}, ax=ax4)
-                ax4.axhline(asr, c='darkred', ls='--', label=f"Avg R ({asr:.2f} m/s)"); ax4.axhline(asw, c='darkblue', ls='--', label=f"Avg W ({asw:.2f} m/s)")
-                ax4.tick_params(axis='x', rotation=90); ax4.set_title("Average Speed (m/s)", fontweight='bold'); ax4.legend()
-                st.pyplot(fig4)
+                st.markdown("---")
+            st.markdown("### ⚡ Analisi Dinamica Velocità (Speed vs Time)")
+            
+            # 1. Selezione del Giocatore specifico per l'analisi
+            # Prendiamo i giocatori presenti in questa clip
+            players_in_clip = sorted(sub[sub['team'].isin(['Red', 'White'])]['player_unique_id'].unique())
+            target_player = st.selectbox("Seleziona Giocatore:", players_in_clip)
+
+            if target_player:
+                # 2. Estrai i dati del singolo giocatore
+                p_data = sub[sub['player_unique_id'] == target_player].sort_values('frame_id').copy()
+                
+                # 3. Ricalcola la velocità istantanea (Logica Fisica)
+                # Usiamo lo stesso filtro Savitzky-Golay per coerenza
+                try:
+                    xm = savgol_filter(p_data['x_meters'], 15, 2)
+                    ym = savgol_filter(p_data['y_meters'], 15, 2)
+                except:
+                    # Fallback se i dati sono troppo pochi per il filtro
+                    xm = p_data['x_meters'].values
+                    ym = p_data['y_meters'].values
+
+                # Calcolo differenze posizione (dx, dy)
+                dx = np.diff(xm, prepend=xm[0])
+                dy = np.diff(ym, prepend=ym[0])
+                
+                # Distanza per frame (metri)
+                dist_per_frame = np.sqrt(dx**2 + dy**2)
+                
+                # Velocità (m/s) = Distanza * FPS
+                # Nota: PHYSICS_FPS deve essere 12.0 come definito in alto
+                speed_curve = dist_per_frame * PHYSICS_FPS 
+                
+                # Pulizia rumore (opzionale: azzera sotto 0.2 m/s)
+                speed_curve[speed_curve < 0.2] = 0
+                
+                # Aggiungi al dataframe temporaneo per il grafico
+                p_data['speed_m_s'] = speed_curve
+                
+                # 4. Genera il Grafico Interattivo con Plotly
+                fig_speed = px.line(
+                    p_data, 
+                    x='frame_id', 
+                    y='speed_m_s',
+                    title=f"Velocità nel tempo: {target_player}",
+                    labels={'frame_id': 'Frame Timeline', 'speed_m_s': 'Velocità (m/s)'},
+                    template="plotly_white"
+                )
+                
+                # Aggiungi zone colorate di riferimento (facoltativo ma figo)
+                # 0-2 m/s: Camminata/Fermo
+                # 2-4 m/s: Corsa Lenta
+                # 4+ m/s: Sprint
+                fig_speed.add_hrect(y0=0, y1=2, line_width=0, fillcolor="green", opacity=0.1, annotation_text="Walk/Stand")
+                fig_speed.add_hrect(y0=2, y1=4.5, line_width=0, fillcolor="yellow", opacity=0.1, annotation_text="Jog")
+                fig_speed.add_hrect(y0=4.5, y1=10, line_width=0, fillcolor="red", opacity=0.1, annotation_text="Sprint")
+                
+                # Mostra il grafico
+                st.plotly_chart(fig_speed, use_container_width=True)
+                
+                # Mostra statistica puntuale
+                avg_s = speed_curve.mean()
+                max_s = speed_curve.max()
+                k1, k2 = st.columns(2)
+                k1.metric("Velocità Media", f"{avg_s:.2f} m/s")
+                k2.metric("Picco Velocità", f"{max_s:.2f} m/s")
 
             ball_mask = df['team'] == 'Ball'
             if ball_mask.any():
