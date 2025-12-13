@@ -629,12 +629,28 @@ else:
             # Visualizzazione Timeline Fasi
             st.markdown("### 🧠 Tactical Timeline (Game Phases)")
             if not game_phases.empty:
-                fig_timeline = px.timeline(
-                    game_phases, x_start="Start", x_end="End", y="Team", color="Team",
-                    color_discrete_map={'Red': 'red', 'White': 'blue'}, title="Flusso del Possesso Palla"
+                # FIX: Calcoliamo la durata per usare px.bar invece di px.timeline
+                # px.timeline si rompe con i numeri interi (crede siano date 1970)
+                game_phases['Duration'] = game_phases['End'] - game_phases['Start']
+                
+                # Usiamo Bar Chart Orizzontale che accetta numeri (Frames)
+                fig_timeline = px.bar(
+                    game_phases, 
+                    x="Duration", 
+                    y="Team", 
+                    base="Start", # Questo dice alla barra di iniziare dal frame 'Start'
+                    orientation='h',
+                    color="Team",
+                    color_discrete_map={'Red': 'red', 'White': 'blue'},
+                    title="Flusso del Possesso Palla (Asse X = Frame ID)",
+                    labels={"base": "Inizio Frame", "Duration": "Durata (Frames)"}
                 )
-                fig_timeline.update_yaxes(autorange="reversed")
-                st.plotly_chart(fig_timeline, width="stretch")
+                
+                # Ordiniamo l'asse Y per estetica e mettiamo labels chiare
+                fig_timeline.update_layout(xaxis_title="Timeline (Frame ID)", yaxis_title="Squadra")
+                fig_timeline.update_yaxes(autorange="reversed") 
+                
+                st.plotly_chart(fig_timeline, use_container_width=True)
             else:
                 st.warning("Nessun possesso chiaro rilevato per segmentare le fasi.")
 
