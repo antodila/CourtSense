@@ -390,6 +390,58 @@ def calculate_stats_dummy(df_action, player_id, current_frame, ownership_table):
     # Dummy per UI
     return 0, 0, "-", 0
 
+def detect_game_phases(possession_table, df_players):
+    """
+    Raggruppa i frame in fasi di attacco (Red/White) basandosi sul possesso.
+    Riempie i buchi (palla in volo) mantenendo il possesso alla squadra precedente.
+    """
+    # Creiamo una serie temporale completa dei frame
+    min_f, max_f = df_players['frame_id'].min(), df_players['frame_id'].max()
+    frames = range(int(min_f), int(max_f)+1)
+    
+    # Dizionario frame -> team in possesso
+    # Se la palla è di "Red_5", il team è "Red"
+    poss_map = possession_table['player_unique_id'].apply(lambda x: x.split('_')[0]).to_dict()
+    
+    phases = []
+    current_team = None
+    start_f = min_f
+    
+    # Parametro: Quanti frame di "buco" (palla in volo) tolleriamo prima di dire che il possesso è perso?
+    # 24 frame = 2 secondi (a 12fps)
+    MAX_GAP = 24 
+    gap_counter = 0
+    
+    for f in frames:
+        team_in_frame = poss_map.get(f, None) # Chi ha la palla ora?
+        
+        if team_in_frame is not None:
+            # C'è un possesso attivo
+            if team_in_frame != current_team:
+                # CAMBIO POSSESSO (Turnover o inizio azione)
+                if current_team is not None:
+                    phases.append({'Team': current_team, 'Start': start_f, 'End': f-1})
+                
+                # Nuovo possesso inizia
+                current_team = team_in_frame
+                start_f = f
+                gap_counter = 0
+            else:
+                # Stesso team mantiene palla, resetta il gap
+                gap_counter = 0
+        else:
+            # Nessuno ha la palla (passaggio o tiro)
+            gap_counter += 1
+            # Se il buco è troppo lungo (es. palla ferma fuori campo), chiudiamo la fase
+            # (Facoltativo, per ora lasciamo che il possesso "duri" fino al tocco avversario)
+            pass
+            
+    # Chiudi l'ultima fase
+    if current_team is not None:
+        phases.append({'Team': current_team, 'Start': start_f, 'End': max_f})
+        
+    return pd.DataFrame(phases)
+
 @st.cache_data(show_spinner=False)
 def get_cached_voronoi_gif(df_subset, start_frame, end_frame, file_prefix="voronoi"):
     """
@@ -551,6 +603,67 @@ else:
             own_sub = own_table[own_table.index.isin(sub['frame_id'].unique())]
             duration_s = (end - start + 1) / PHYSICS_FPS 
             
+with st.spinner("Calcolo Fasi di Gioco..."):
+            # 0. Calcolo base (uguale a prima)
+            sub = df[(df['frame_id'] >= start) & (df['frame_id'] <= end)]
+            # ... (tuo codice esistente per players, own_sub, etc.) ...
+            
+            # --- NUOVO: RICONOSCIMENTO FASI ---
+            game_phases = detect_game_phases(own_sub, sub)
+            
+            # Visualizziamo una Timeline "Gantt" per far vedere al prof che l'IA capisce il gioco
+            st.markdown("### 🧠 Tactical Timeline")
+            if not game_phases.empty:
+                # Creiamo un grafico Gantt semplice con Plotly
+                fig_timeline = px.timeline(
+                    game_phases, 
+                    x_start="Start", 
+                    x_end="End", 
+                    y="Team", 
+                    color="Team",
+                    color_discrete_map={'Red': 'red', 'White': 'blue'},
+                    title="Possession Flow (Game Phases)"
+                )
+                fig_timeline.update_yaxes(autorange="reversed") # Per estetica
+                st.plotly_chart(fig_timeline, width="stretch")
+            else:
+                st.warning("Nessun possesso chiaro rilevato in questa clip.")
+
+            # --- FILTRO ATTACCO / DIFESA ---
+            # Questo è il punto chiave: permettiamo all'utente di filtrare i dati
+            st.markdown("#### 🎯 Filtra Metriche per Fase")
+            phase_filter = st.radio(
+                "Mostra metriche per:", 
+                ["Intera Clip", "Solo Red Offense (Red Attacca)", "Solo White Offense (White Attacca)"],
+                horizontal=True
+            )
+            
+            # APPLICAZIONE DEL FILTRO AL DATAFRAME 'sub'
+            # Se filtriamo qui, TUTTI i calcoli successivi (workload, speed, spacing)
+            # si adatteranno automaticamente alla fase scelta!
+            filtered_sub = sub.copy()
+            
+            if phase_filter == "Solo Red Offense (Red Attacca)":
+                # Tieni solo i frame dove Red ha il possesso (calcolati da detect_game_phases)
+                valid_frames = []
+                for _, row in game_phases[game_phases['Team'] == 'Red'].iterrows():
+                    valid_frames.extend(range(int(row['Start']), int(row['End'])+1))
+                filtered_sub = sub[sub['frame_id'].isin(valid_frames)]
+                st.caption(f"Analisi su {len(valid_frames)} frame di attacco Red.")
+
+            elif phase_filter == "Solo White Offense (White Attacca)":
+                valid_frames = []
+                for _, row in game_phases[game_phases['Team'] == 'White'].iterrows():
+                    valid_frames.extend(range(int(row['Start']), int(row['End'])+1))
+                filtered_sub = sub[sub['frame_id'].isin(valid_frames)]
+                st.caption(f"Analisi su {len(valid_frames)} frame di attacco White.")
+            
+            # IMPORTANTISSIMO: Sovrascriviamo 'sub' e 'players' con i dati filtrati
+            # Così il resto del codice usa solo i dati della fase scelta
+            players = filtered_sub[filtered_sub['team'].isin(['Red', 'White'])]
+            # Ricalcoliamo la durata in secondi effettiva della fase selezionata
+            duration_s = (len(filtered_sub['frame_id'].unique())) / PHYSICS_FPS
+
             # 1. Spacing (Invariato)
             spac = []
             for f, g in players.groupby('frame_id'):
@@ -712,7 +825,7 @@ else:
                 gif_path = get_cached_voronoi_gif(sub, start, end, file_prefix="voronoi")
             
             if gif_path and os.path.exists(gif_path):
-                st.image(gif_path, use_container_width=True)
+                st.image(gif_path, width="stretch")
             else:
                 st.warning("Nessun dato sufficiente per generare la Voronoi Map.")
             
