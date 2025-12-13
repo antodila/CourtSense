@@ -643,7 +643,10 @@ else:
                     color="Team",
                     color_discrete_map={'Red': 'red', 'White': 'blue'},
                     title="Flusso del Possesso Palla (Asse X = Frame ID)",
-                    labels={"base": "Inizio Frame", "Duration": "Fine Frame"}
+                    # 1. Rinominiamo le etichette per renderle belle
+                    labels={"base": "Inizio", "Duration": "Durata", "Start": "Inizio", "End": "Fine"},
+                    # 2. Aggiungiamo esplicitamente 'End' e 'Start' al tooltip
+                    hover_data={"Start": True, "End": True, "Duration": False}
                 )
                 
                 # Ordiniamo l'asse Y per estetica e mettiamo labels chiare
