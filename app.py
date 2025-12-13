@@ -643,7 +643,7 @@ else:
                     color="Team",
                     color_discrete_map={'Red': 'red', 'White': 'blue'},
                     title="Flusso del Possesso Palla (Asse X = Frame ID)",
-                    labels={"base": "Inizio Frame", "Duration": "Durata (Frames)"}
+                    labels={"base": "Inizio Frame", "Duration": "Fine Frame"}
                 )
                 
                 # Ordiniamo l'asse Y per estetica e mettiamo labels chiare
