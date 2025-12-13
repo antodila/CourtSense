@@ -390,17 +390,27 @@ def calculate_stats_dummy(df_action, player_id, current_frame, ownership_table):
     # Dummy per UI
     return 0, 0, "-", 0
 
+# ═══════════════════════════════════════════════════════════════════════════
+# LOGICA FASI DI GIOCO (TACTICAL INTELLIGENCE)
+# ═══════════════════════════════════════════════════════════════════════════
 def detect_game_phases(possession_table, df_players):
     """
     Raggruppa i frame in fasi di attacco (Red/White) basandosi sul possesso.
     Riempie i buchi (palla in volo) mantenendo il possesso alla squadra precedente.
     """
+    if df_players.empty:
+        return pd.DataFrame()
+
     # Creiamo una serie temporale completa dei frame
     min_f, max_f = df_players['frame_id'].min(), df_players['frame_id'].max()
     frames = range(int(min_f), int(max_f)+1)
     
     # Dizionario frame -> team in possesso
     # Se la palla è di "Red_5", il team è "Red"
+    # possession_table ha l'indice frame_id
+    if possession_table.empty:
+        return pd.DataFrame()
+        
     poss_map = possession_table['player_unique_id'].apply(lambda x: x.split('_')[0]).to_dict()
     
     phases = []
@@ -432,8 +442,8 @@ def detect_game_phases(possession_table, df_players):
         else:
             # Nessuno ha la palla (passaggio o tiro)
             gap_counter += 1
-            # Se il buco è troppo lungo (es. palla ferma fuori campo), chiudiamo la fase
-            # (Facoltativo, per ora lasciamo che il possesso "duri" fino al tocco avversario)
+            # Qui potremmo chiudere la fase se gap_counter > MAX_GAP, 
+            # ma per ora lasciamo "correre" il possesso fino al prossimo cambio
             pass
             
     # Chiudi l'ultima fase
@@ -597,74 +607,73 @@ else:
     if st.button("Genera Metriche") or st.session_state.metrics_active:
         st.session_state.metrics_active = True
         
-        with st.spinner("Calcolo metriche coerenti..."):
-            sub = df[(df['frame_id'] >= start) & (df['frame_id'] <= end)]
-            players = sub[sub['team'].isin(['Red', 'White'])]
-            own_sub = own_table[own_table.index.isin(sub['frame_id'].unique())]
-            duration_s = (end - start + 1) / PHYSICS_FPS 
-            
-with st.spinner("Calcolo Fasi di Gioco..."):
-            # 0. Calcolo base (uguale a prima)
-            sub = df[(df['frame_id'] >= start) & (df['frame_id'] <= end)]
-            # ... (tuo codice esistente per players, own_sub, etc.) ...
-            
-            # --- NUOVO: RICONOSCIMENTO FASI ---
-            game_phases = detect_game_phases(own_sub, sub)
-            
-            # Visualizziamo una Timeline "Gantt" per far vedere al prof che l'IA capisce il gioco
-            st.markdown("### 🧠 Tactical Timeline")
-            if not game_phases.empty:
-                # Creiamo un grafico Gantt semplice con Plotly
-                fig_timeline = px.timeline(
-                    game_phases, 
-                    x_start="Start", 
-                    x_end="End", 
-                    y="Team", 
-                    color="Team",
-                    color_discrete_map={'Red': 'red', 'White': 'blue'},
-                    title="Possession Flow (Game Phases)"
-                )
-                fig_timeline.update_yaxes(autorange="reversed") # Per estetica
-                st.plotly_chart(fig_timeline, width="stretch")
-            else:
-                st.warning("Nessun possesso chiaro rilevato in questa clip.")
+       # --- REPORT FINALE ---
+    st.markdown("---"); st.subheader("📈 Report")
 
-            # --- FILTRO ATTACCO / DIFESA ---
-            # Questo è il punto chiave: permettiamo all'utente di filtrare i dati
-            st.markdown("#### 🎯 Filtra Metriche per Fase")
+    if 'metrics_active' not in st.session_state:
+        st.session_state.metrics_active = False
+
+    if st.button("Genera Metriche") or st.session_state.metrics_active:
+        st.session_state.metrics_active = True
+        
+        with st.spinner("Analisi Tattica in corso..."):
+            # 1. Caricamento Dati Base (Intervallo Selezionato)
+            base_sub = df[(df['frame_id'] >= start) & (df['frame_id'] <= end)]
+            base_own_sub = own_table[own_table.index.isin(base_sub['frame_id'].unique())]
+            
+            # 2. Rilevamento Fasi (Tactical Intelligence)
+            game_phases = detect_game_phases(base_own_sub, base_sub)
+            
+            # Visualizzazione Timeline Fasi
+            st.markdown("### 🧠 Tactical Timeline (Game Phases)")
+            if not game_phases.empty:
+                fig_timeline = px.timeline(
+                    game_phases, x_start="Start", x_end="End", y="Team", color="Team",
+                    color_discrete_map={'Red': 'red', 'White': 'blue'}, title="Flusso del Possesso Palla"
+                )
+                fig_timeline.update_yaxes(autorange="reversed")
+                st.plotly_chart(fig_timeline, use_container_width=True)
+            else:
+                st.warning("Nessun possesso chiaro rilevato per segmentare le fasi.")
+
+            # 3. Filtro Interattivo
+            st.markdown("#### 🎯 Filtra Metriche")
             phase_filter = st.radio(
-                "Mostra metriche per:", 
-                ["Intera Clip", "Solo Red Offense (Red Attacca)", "Solo White Offense (White Attacca)"],
+                "Analizza:", 
+                ["Intera Clip", "Solo Red Offense", "Solo White Offense"],
                 horizontal=True
             )
             
-            # APPLICAZIONE DEL FILTRO AL DATAFRAME 'sub'
-            # Se filtriamo qui, TUTTI i calcoli successivi (workload, speed, spacing)
-            # si adatteranno automaticamente alla fase scelta!
-            filtered_sub = sub.copy()
+            # 4. Applicazione Filtro ai Dati
+            sub = base_sub.copy() # Default: tutto
             
-            if phase_filter == "Solo Red Offense (Red Attacca)":
-                # Tieni solo i frame dove Red ha il possesso (calcolati da detect_game_phases)
+            if phase_filter == "Solo Red Offense":
                 valid_frames = []
                 for _, row in game_phases[game_phases['Team'] == 'Red'].iterrows():
                     valid_frames.extend(range(int(row['Start']), int(row['End'])+1))
-                filtered_sub = sub[sub['frame_id'].isin(valid_frames)]
-                st.caption(f"Analisi su {len(valid_frames)} frame di attacco Red.")
-
-            elif phase_filter == "Solo White Offense (White Attacca)":
+                if valid_frames:
+                    sub = base_sub[base_sub['frame_id'].isin(valid_frames)]
+                    st.success(f"Filtrato: {len(valid_frames)} frame di Attacco Red")
+                else:
+                    st.warning("Nessuna fase di attacco Red rilevata.")
+                    
+            elif phase_filter == "Solo White Offense":
                 valid_frames = []
                 for _, row in game_phases[game_phases['Team'] == 'White'].iterrows():
                     valid_frames.extend(range(int(row['Start']), int(row['End'])+1))
-                filtered_sub = sub[sub['frame_id'].isin(valid_frames)]
-                st.caption(f"Analisi su {len(valid_frames)} frame di attacco White.")
-            
-            # IMPORTANTISSIMO: Sovrascriviamo 'sub' e 'players' con i dati filtrati
-            # Così il resto del codice usa solo i dati della fase scelta
-            players = filtered_sub[filtered_sub['team'].isin(['Red', 'White'])]
-            # Ricalcoliamo la durata in secondi effettiva della fase selezionata
-            duration_s = (len(filtered_sub['frame_id'].unique())) / PHYSICS_FPS
+                if valid_frames:
+                    sub = base_sub[base_sub['frame_id'].isin(valid_frames)]
+                    st.success(f"Filtrato: {len(valid_frames)} frame di Attacco White")
+                else:
+                    st.warning("Nessuna fase di attacco White rilevata.")
 
-            # 1. Spacing (Invariato)
+            # 5. Ricalcolo Variabili Chiave sui Dati (Filtrati o No)
+            players = sub[sub['team'].isin(['Red', 'White'])]
+            own_sub = own_table[own_table.index.isin(sub['frame_id'].unique())]
+            duration_s = (len(sub['frame_id'].unique())) / PHYSICS_FPS 
+            
+            if duration_s == 0: duration_s = 1 # Evita divisione per zero se filtro vuoto
+            
             spac = []
             for f, g in players.groupby('frame_id'):
                 for t in ['Red', 'White']:
