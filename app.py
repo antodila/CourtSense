@@ -597,15 +597,6 @@ else:
         prog_bar.empty()
         st.success("Video Generato!")
         st.video(output_file)
-
-    # --- REPORT FINALE ---
-    st.markdown("---"); st.subheader("📈 Report")
-
-    if 'metrics_active' not in st.session_state:
-        st.session_state.metrics_active = False
-
-    if st.button("Genera Metriche") or st.session_state.metrics_active:
-        st.session_state.metrics_active = True
         
        # --- REPORT FINALE ---
     st.markdown("---"); st.subheader("📈 Report")
@@ -673,7 +664,7 @@ else:
             duration_s = (len(sub['frame_id'].unique())) / PHYSICS_FPS 
             
             if duration_s == 0: duration_s = 1 # Evita divisione per zero se filtro vuoto
-            
+
             spac = []
             for f, g in players.groupby('frame_id'):
                 for t in ['Red', 'White']:
