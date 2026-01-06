@@ -61,7 +61,7 @@ def process_datasets():
                     'image_path': img_relative_path,
                     'team': team,
                     'number': number,
-                    'raw_class': class_name,  # <--- ECCO LA RIGA CHE MANCAVA!
+                    'raw_class': class_name,
                     'x_feet': bbox[0] + (bbox[2] / 2),
                     'y_feet': bbox[1] + bbox[3],
                     'bbox_x': bbox[0],
