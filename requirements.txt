@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+opencv-python-headless
+matplotlib
+seaborn
+scipy
+imageio
+imageio-ffmpeg
+plotly  
