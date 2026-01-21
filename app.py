@@ -114,7 +114,7 @@ def get_possession_table(df_subset):
 
 # Graphics and rendering
 # ═══════════════════════════════════════════════════════════════════════════
-def draw_radar_court(img, , height, color=(200, 200, 200)):
+def draw_radar_court(img, width, height, color=(200, 200, 200)):
     # Draw a realistic FIBA basketball court on the radar
     thick = 2
     # Scale: pixels per meter
