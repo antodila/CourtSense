@@ -114,7 +114,7 @@ def get_possession_table(df_subset):
 
 # Graphics and rendering
 # ═══════════════════════════════════════════════════════════════════════════
-def draw_radar_court(img, width, height, color=(200, 200, 200)):
+def draw_radar_court(img, , height, color=(200, 200, 200)):
     # Draw a realistic FIBA basketball court on the radar
     thick = 2
     # Scale: pixels per meter
@@ -628,7 +628,7 @@ else:
                 fig_timeline.update_layout(xaxis_title="Timeline (Frame ID)", yaxis_title="Squadra")
                 fig_timeline.update_yaxes(autorange="reversed") 
                 
-                st.plotly_chart(fig_timeline, width='stretch)
+                st.plotly_chart(fig_timeline, width="stretch")
             else:
                 st.warning("Nessun possesso chiaro rilevato per segmentare le fasi.")
 
